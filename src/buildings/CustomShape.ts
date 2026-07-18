@@ -207,8 +207,9 @@ export class CustomShape extends Building {
       for (const shard of shards) {
         if (shard.parts.length > 1) continue;
 
-        // Apply conveyor force if shard's center is inside the segment polygon
-        if (PolygonUtils.isPointInPolygon(shard.position, worldPoly)) {
+        // Apply conveyor force if shard overlaps the segment polygon (center inside OR edge touching)
+        const shardRadius = (shard as any).circleRadius || 5;
+        if (PolygonUtils.isCircleOverlappingPolygon(shard.position, shardRadius, worldPoly)) {
           // Optimized force multiplier to match updated shard weights
           const forceMag = 0.0035 * shard.mass;
           Body.applyForce(shard, shard.position, {

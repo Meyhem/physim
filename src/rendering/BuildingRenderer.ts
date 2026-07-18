@@ -5,6 +5,7 @@ import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
 import { CustomShape } from '../buildings/CustomShape.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
+import type { Point2D } from '../physics/PolygonUtils.ts';
 
 export class BuildingRenderer {
   private container: Container;
@@ -54,7 +55,7 @@ export class BuildingRenderer {
 
   private drawBuilding(building: Building, graphics: Graphics): void {
     graphics.clear();
-    
+
     // Position/rotate graphics container based on current physics body position/angle
     const body = building.getBody();
     if (body) {
@@ -94,12 +95,12 @@ export class BuildingRenderer {
 
       // Draw wobbling crusher jaws
       const jawAngle = building.jawAngle;
-      
+
       const drawRotatedRect = (px: number, py: number, rWidth: number, rHeight: number, rAngle: number) => {
         const cos = Math.cos(rAngle);
         const sin = Math.sin(rAngle);
         const halfW = rWidth / 2;
-        
+
         const pts = [
           { x: -halfW, y: 0 },
           { x: halfW, y: 0 },
@@ -121,7 +122,7 @@ export class BuildingRenderer {
 
       // Draw left wobbling jaw
       drawRotatedRect(-21, -10, 12, 45, jawAngle);
-      
+
       // Draw right wobbling jaw
       drawRotatedRect(21, -10, 12, 45, -jawAngle);
 
@@ -143,7 +144,7 @@ export class BuildingRenderer {
       if (building.heatIntensity > 0) {
         graphics.circle(0, 10, 25);
         graphics.fill({ color: 0xFF4500, alpha: building.heatIntensity * 0.4 });
-        
+
         // Heat core
         graphics.circle(0, 10, 12);
         graphics.fill({ color: 0xFFD700, alpha: building.heatIntensity * 0.7 });
@@ -177,62 +178,77 @@ export class BuildingRenderer {
   private updateGhost(buildingManager: BuildingManager, customShapeDefs: CustomShapeDef[]): void {
     this.ghostGraphics.clear();
 
-    // 1. If in brush tool, draw the brush path ghost
-    if (this.engine.activeTool === 'brush' && this.engine.ghostPath.length > 0) {
+    // 1. If in brush tool, draw the brush path ghost (supports multiple strokes)
+    const hasGhostPaths = this.engine.ghostPaths.length > 0;
+    const hasCurrentStroke = (this.engine.currentStroke || []).length >= 2;
+    if (this.engine.activeTool === 'brush' && (hasGhostPaths || hasCurrentStroke)) {
       const brushType = this.engine.activeBrush;
-      const pts = this.engine.ghostPath;
       const thickness = this.engine.ghostThickness;
-      const pos = this.engine.ghostPosition;
-      const angle = this.engine.ghostAngle;
 
-      this.ghostGraphics.x = pos.x;
-      this.ghostGraphics.y = pos.y;
-      this.ghostGraphics.rotation = angle;
+      // All strokes are stored in world coordinates, render at origin
+      this.ghostGraphics.x = 0;
+      this.ghostGraphics.y = 0;
+      this.ghostGraphics.rotation = 0;
 
       const strokeColor = brushType === 'solid' ? 0x7f8c8d : 0xf39c12;
 
-      // Draw translucent outline
-      this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) {
-        this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
+      // Collect all strokes to draw (completed + in-progress)
+      const allStrokes: Point2D[][] = [...this.engine.ghostPaths];
+      if (hasCurrentStroke) {
+        allStrokes.push(this.engine.currentStroke);
       }
-      this.ghostGraphics.stroke({ color: strokeColor, width: thickness, alpha: 0.4, cap: 'round', join: 'round' });
 
-      // Draw solid thin core line
-      this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) {
-        this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
-      }
-      this.ghostGraphics.stroke({ color: strokeColor, width: 2, alpha: 0.8, cap: 'round', join: 'round' });
+      // Helper: draw a stroke's translucent outline + core line + arrows
+      const drawStroke = (pts: Point2D[]) => {
+        if (pts.length < 2) return;
 
-      // Draw conveyor directions if conveyor
-      if (brushType === 'conveyor' && pts.length >= 2) {
-        let accumulatedDist = 0;
-        const arrowSpacing = 40;
-        for (let i = 0; i < pts.length - 1; i++) {
-          const p1 = pts[i];
-          const p2 = pts[i + 1];
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-          const len = Math.sqrt(dx * dx + dy * dy);
-          accumulatedDist += len;
-          if (accumulatedDist >= arrowSpacing) {
-            accumulatedDist = 0;
-            const segmentAngle = Math.atan2(dy, dx);
-            const arrowX = p2.x;
-            const arrowY = p2.y;
-            const cos = Math.cos(segmentAngle);
-            const sin = Math.sin(segmentAngle);
-            const pA = { x: arrowX, y: arrowY };
-            const pB = { x: arrowX - 10 * cos - 5 * sin, y: arrowY - 10 * sin + 5 * cos };
-            const pC = { x: arrowX - 10 * cos + 5 * sin, y: arrowY - 10 * sin - 5 * cos };
-            this.ghostGraphics.moveTo(pA.x, pA.y);
-            this.ghostGraphics.lineTo(pB.x, pB.y);
-            this.ghostGraphics.lineTo(pC.x, pC.y);
-            this.ghostGraphics.closePath();
-            this.ghostGraphics.fill({ color: strokeColor, alpha: 0.8 });
+        // Translucent outline
+        this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
+        }
+        this.ghostGraphics.stroke({ color: strokeColor, width: thickness, alpha: 0.4, cap: 'round', join: 'round' });
+
+        // Core line
+        this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
+        }
+        this.ghostGraphics.stroke({ color: strokeColor, width: 2, alpha: 0.8, cap: 'round', join: 'round' });
+
+        // Conveyor direction arrows
+        if (brushType === 'conveyor' && pts.length >= 2) {
+          let accumulatedDist = 0;
+          const arrowSpacing = 40;
+          for (let i = 0; i < pts.length - 1; i++) {
+            const p1 = pts[i];
+            const p2 = pts[i + 1];
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            accumulatedDist += len;
+            if (accumulatedDist >= arrowSpacing) {
+              accumulatedDist = 0;
+              const segmentAngle = Math.atan2(dy, dx);
+              const arrowX = p2.x;
+              const arrowY = p2.y;
+              const cosA = Math.cos(segmentAngle);
+              const sinA = Math.sin(segmentAngle);
+              const pA = { x: arrowX, y: arrowY };
+              const pB = { x: arrowX - 10 * cosA - 5 * sinA, y: arrowY - 10 * sinA + 5 * cosA };
+              const pC = { x: arrowX - 10 * cosA + 5 * sinA, y: arrowY - 10 * sinA - 5 * cosA };
+              this.ghostGraphics.moveTo(pA.x, pA.y);
+              this.ghostGraphics.lineTo(pB.x, pB.y);
+              this.ghostGraphics.lineTo(pC.x, pC.y);
+              this.ghostGraphics.closePath();
+              this.ghostGraphics.fill({ color: strokeColor, alpha: 0.8 });
+            }
           }
         }
+      };
+
+      for (const stroke of allStrokes) {
+        drawStroke(stroke);
       }
       return;
     }
@@ -255,12 +271,12 @@ export class BuildingRenderer {
       this.ghostGraphics.rect(-w / 2, -h / 2, w, h);
       this.ghostGraphics.fill({ color, alpha: 0.15 });
       this.ghostGraphics.stroke({ color, width: 2, alpha: 0.6 });
-      
+
       if (ghost.type === 'crusher') {
         this.ghostGraphics.moveTo(-w / 2, -h / 2 + 20);
         this.ghostGraphics.lineTo(-20, 0);
         this.ghostGraphics.lineTo(-25, h / 2 - 20);
-        
+
         this.ghostGraphics.moveTo(w / 2, -h / 2 + 20);
         this.ghostGraphics.lineTo(20, 0);
         this.ghostGraphics.lineTo(25, h / 2 - 20);

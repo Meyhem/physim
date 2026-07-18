@@ -41,13 +41,15 @@ export class Engine {
   public onCustomShapesUpdated?: (defs: CustomShapeDef[]) => void;
 
   public activeBrush: 'solid' | 'conveyor' | null = null;
-  public ghostPath: Point2D[] = [];
+  public ghostPaths: Point2D[][] = [];     // Array of completed strokes (world coords)
   public ghostPosition: Point2D = { x: 0, y: 0 };
   public ghostAngle: number = 0;
-  public ghostThickness: number = 16;
+  public ghostThickness: number = 40;
   private isDrawingGhost: boolean = false;
   private draggingGhost: boolean = false;
   private ghostDragOffset: Point2D = { x: 0, y: 0 };
+  private currentStroke: Point2D[] = [];   // Points being drawn in the current stroke (world coords)
+  private strokeCount: number = 0;         // Number of strokes in ghostPaths
 
   public activePlacement: { type: 'building' | 'custom_shape'; targetId: string } | null = null;
 
@@ -126,7 +128,7 @@ export class Engine {
       const worldPos = this.camera.screenToWorld(screenX, screenY);
 
       // Check if we hit the active ghost
-      if (this.activeBrush && this.ghostPath.length >= 2) {
+      if (this.activeBrush && this.hasStrokeData()) {
         if (this.hitTestGhost(worldPos)) {
           this.draggingGhost = true;
           this.ghostDragOffset = {
@@ -228,7 +230,7 @@ export class Engine {
 
   public setTool(tool: 'grab' | 'explosive' | 'brush'): void {
     this.activeTool = tool;
-    
+
     // Clear other tools' states
     this.explosiveTool.clearPaint();
     if (tool !== 'brush') {
@@ -253,21 +255,39 @@ export class Engine {
     this.explosiveTool.clearPaint();
   }
 
+  /** Returns true if any stroke data exists (either completed strokes or current in-progress stroke) */
+  public hasStrokeData(): boolean {
+    return this.ghostPaths.length > 0 || this.currentStroke.length >= 2;
+  }
+
+  /** Get all strokes with ghostPosition translation applied (for right-click drag repositioning) */
+  public getWorldStrokes(): Point2D[][] {
+    const ox = this.ghostPosition.x;
+    const oy = this.ghostPosition.y;
+    return this.ghostPaths.map(stroke =>
+      stroke.map(p => ({ x: p.x + ox, y: p.y + oy }))
+    );
+  }
+
+  /** Flatten all strokes (with ghostPosition offset applied) for hit-testing */
+  private getAllStrokePoints(): Point2D[] {
+    const all: Point2D[] = [];
+    for (const stroke of this.getWorldStrokes()) {
+      all.push(...stroke);
+    }
+    if (this.currentStroke.length >= 2) {
+      all.push(...this.currentStroke);
+    }
+    return all;
+  }
+
   public hitTestGhost(worldPos: Point2D): boolean {
-    if (this.ghostPath.length < 2) return false;
-    
-    const dx = worldPos.x - this.ghostPosition.x;
-    const dy = worldPos.y - this.ghostPosition.y;
-    const cos = Math.cos(-this.ghostAngle);
-    const sin = Math.sin(-this.ghostAngle);
-    const localPos = {
-      x: dx * cos - dy * sin,
-      y: dx * sin + dy * cos
-    };
+    const allPoints = this.getAllStrokePoints();
+    if (allPoints.length < 2) return false;
 
     let minDist = Infinity;
-    for (let i = 0; i < this.ghostPath.length - 1; i++) {
-      const d = PolygonUtils.distToSegment(localPos, this.ghostPath[i], this.ghostPath[i+1]);
+    for (let i = 0; i < allPoints.length - 1; i++) {
+      const d = PolygonUtils.distToSegment(worldPos, allPoints[i], allPoints[i + 1]);
       if (d < minDist) minDist = d;
     }
 
@@ -275,26 +295,39 @@ export class Engine {
   }
 
   public clearBrushDrawing(): void {
-    this.ghostPath = [];
+    this.ghostPaths = [];
+    this.currentStroke = [];
     this.isDrawingGhost = false;
     this.draggingGhost = false;
+    this.strokeCount = 0;
+    this.ghostPosition = { x: 0, y: 0 };
+    this.ghostAngle = 0;
   }
 
   public confirmBrushDrawing(): void {
-    if (this.ghostPath.length < 2) {
+    // Collect all strokes in world coordinates
+    const worldStrokes: Point2D[][] = this.getWorldStrokes();
+    if (this.currentStroke.length >= 2) {
+      worldStrokes.push(this.currentStroke);
+    }
+
+    if (worldStrokes.length === 0) {
       alert("Please draw a line of at least 2 points first!");
       return;
     }
 
-    // 1. Transform ghost path points to world coordinates
-    const cos = Math.cos(this.ghostAngle);
-    const sin = Math.sin(this.ghostAngle);
-    const worldPoints = this.ghostPath.map(p => ({
-      x: this.ghostPosition.x + p.x * cos - p.y * sin,
-      y: this.ghostPosition.y + p.x * sin + p.y * cos
-    }));
+    // Flatten all strokes into a single world points array
+    const worldPoints: Point2D[] = [];
+    for (const stroke of worldStrokes) {
+      worldPoints.push(...stroke);
+    }
 
-    // 2. Generate segment rectangles and joint circles in world coordinates
+    if (worldPoints.length < 2) {
+      alert("Please draw a line of at least 2 points first!");
+      return;
+    }
+
+    // 1. Generate segment rectangles and joint circles in world coordinates
     const worldPolys = PolygonUtils.pathToPolygons(worldPoints, this.ghostThickness);
     if (worldPolys.length === 0) {
       alert("Could not generate shapes from path.");
@@ -323,24 +356,27 @@ export class Engine {
     // 4. Generate clipped conveyor segments if conveyor brush
     let conveyorSegments: { poly: Point2D[]; dir: Point2D }[] = [];
     if (this.activeBrush === 'conveyor') {
-      for (let i = 0; i < worldPoints.length - 1; i++) {
-        const p1 = worldPoints[i];
-        const p2 = worldPoints[i+1];
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const len = Math.sqrt(dx*dx + dy*dy);
-        if (len > 0.001) {
-          const dir = { x: dx / len, y: dy / len };
-          const segRect = PolygonUtils.getSegmentRectangle(p1, p2, this.ghostThickness);
-          
-          let clippedSegs = [segRect];
-          for (const block of terrainBlocks) {
-            clippedSegs = clippedSegs.flatMap(poly => PolygonUtils.difference(poly, block.points));
-          }
-          clippedSegs = clippedSegs.filter(poly => PolygonUtils.getArea(poly) > 5);
+      // worldStrokes already computed above (world coords)
+      for (const stroke of worldStrokes) {
+        for (let j = 0; j < stroke.length - 1; j++) {
+          const p1 = stroke[j];
+          const p2 = stroke[j + 1];
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          if (len > 0.001) {
+            const dir = { x: dx / len, y: dy / len };
+            const segRect = PolygonUtils.getSegmentRectangle(p1, p2, this.ghostThickness);
 
-          for (const poly of clippedSegs) {
-            conveyorSegments.push({ poly, dir });
+            let clippedSegs = [segRect];
+            for (const block of terrainBlocks) {
+              clippedSegs = clippedSegs.flatMap(poly => PolygonUtils.difference(poly, block.points));
+            }
+            clippedSegs = clippedSegs.filter(poly => PolygonUtils.getArea(poly) > 5);
+
+            for (const poly of clippedSegs) {
+              conveyorSegments.push({ poly, dir });
+            }
           }
         }
       }
@@ -360,7 +396,7 @@ export class Engine {
 
         const eCos = Math.cos(body.angle);
         const eSin = Math.sin(body.angle);
-        const existingWorldPolys = b.def.polygons.map(poly => poly.map(p => ({
+        const existingWorldPolys = b.def.polygons.map(poly => poly.map((p: Point2D) => ({
           x: body.position.x + p.x * eCos - p.y * eSin,
           y: body.position.y + p.x * eSin + p.y * eCos
         })));
@@ -383,7 +419,7 @@ export class Engine {
 
           if (brushType === 'conveyor' && b.def.conveyorSegments) {
             const existingWorldSegments = b.def.conveyorSegments.map(seg => ({
-              poly: seg.poly.map(p => ({
+              poly: seg.poly.map((p: Point2D) => ({
                 x: body.position.x + p.x * eCos - p.y * eSin,
                 y: body.position.y + p.x * eSin + p.y * eCos
               })),
@@ -418,13 +454,13 @@ export class Engine {
       y: (minY + maxY) / 2
     };
 
-    const relativePolys = finalWorldPolys.map(poly => poly.map(p => ({
+    const relativePolys = finalWorldPolys.map(poly => poly.map((p: Point2D) => ({
       x: p.x - finalCentroid.x,
       y: p.y - finalCentroid.y
     })));
 
     const relativeConveyorSegments = finalWorldConveyorSegments.map(seg => ({
-      poly: seg.poly.map(p => ({
+      poly: seg.poly.map((p: Point2D) => ({
         x: p.x - finalCentroid.x,
         y: p.y - finalCentroid.y
       })),
@@ -449,7 +485,11 @@ export class Engine {
     customShape.initPhysics(this.physicsWorld.world);
     this.buildingManager.getBuildings().push(customShape);
 
-    this.ghostPath = [];
+    // Clear all stroke data
+    this.ghostPaths = [];
+    this.currentStroke = [];
+    this.isDrawingGhost = false;
+    this.draggingGhost = false;
 
     if (this.onCustomShapesUpdated) {
       this.onCustomShapesUpdated(this.customShapeDefs);
@@ -506,7 +546,7 @@ export class Engine {
     const panSpeed = 800 * dt;
     let dx = 0;
     let dy = 0;
-    
+
     if (this.inputManager.isKeyPressed('w') || this.inputManager.isKeyPressed('arrowup')) {
       dy -= panSpeed;
     }
@@ -584,33 +624,28 @@ export class Engine {
       if (!this.draggingGhost) {
         if (this.inputManager.isLeftDown) {
           if (!this.isDrawingGhost) {
+            // Start drawing a new stroke
             this.isDrawingGhost = true;
-            this.ghostPath = [worldPos];
-            this.ghostPosition = { x: 0, y: 0 };
+            this.currentStroke = [worldPos];
             this.ghostAngle = 0;
           } else {
-            const lastPt = this.ghostPath[this.ghostPath.length - 1];
+            const lastPt = this.currentStroke[this.currentStroke.length - 1];
             const dx = worldPos.x - lastPt.x;
             const dy = worldPos.y - lastPt.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist > 8) {
-              this.ghostPath.push(worldPos);
+              this.currentStroke.push(worldPos);
             }
           }
         } else {
           if (this.isDrawingGhost) {
+            // Release: finalize the current stroke and add to ghostPaths in world coords
             this.isDrawingGhost = false;
-            if (this.ghostPath.length >= 2) {
-              const centroid = PolygonUtils.getCentroid(this.ghostPath);
-              this.ghostPath = this.ghostPath.map(p => ({
-                x: p.x - centroid.x,
-                y: p.y - centroid.y
-              }));
-              this.ghostPosition = centroid;
-              this.ghostAngle = 0;
-            } else {
-              this.ghostPath = [];
+            if (this.currentStroke.length >= 2) {
+              this.ghostPaths.push([...this.currentStroke]);
+              this.strokeCount++;
             }
+            this.currentStroke = [];
           }
         }
       }
@@ -672,7 +707,7 @@ export class Engine {
         const label = s.label;
         const isIngot = label.startsWith('ingot:');
         const radius = (s as any).circleRadius || 5;
-        
+
         return {
           label,
           isIngot,
@@ -689,7 +724,7 @@ export class Engine {
 
   public async deserializeState(state: any): Promise<void> {
     if (!state) return;
-    
+
     const wasPaused = this.isPaused;
     this.isPaused = true;
 
@@ -724,11 +759,11 @@ export class Engine {
             const thickness = def.thickness || 16;
             const worldPolys = PolygonUtils.pathToPolygons(def.points, thickness);
             const startPt = def.points[0] || { x: 0, y: 0 };
-            const relativePolys = worldPolys.map(poly => poly.map(p => ({
+            const relativePolys = worldPolys.map(poly => poly.map((p: Point2D) => ({
               x: p.x - startPt.x,
               y: p.y - startPt.y
             })));
-            
+
             let conveyorSegments;
             if (def.brushType === 'conveyor') {
               conveyorSegments = [];
@@ -805,7 +840,7 @@ export class Engine {
           const labelParts = s.label.split(':');
           const matType = labelParts[1];
           const props = Materials[matType.replace('_crushed', '') as MaterialType] || Materials[MaterialType.DIRT];
-          
+
           // Support both new circle format (radius) and legacy polygon format (vertices)
           let body;
           if (s.isIngot) {

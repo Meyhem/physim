@@ -191,6 +191,24 @@ export class PolygonUtils {
   }
 
   /**
+   * Checks if a circle (center + radius) overlaps with a polygon.
+   * Returns true if the circle's center is inside the polygon OR
+   * if the circle's edge intersects any edge of the polygon.
+   */
+  public static isCircleOverlappingPolygon(center: Point2D, radius: number, vs: Point2D[]): boolean {
+    // Quick check: is center inside?
+    if (this.isPointInPolygon(center, vs)) return true;
+
+    // Check distance to each edge
+    for (let i = 0; i < vs.length; i++) {
+      const j = (i + 1) % vs.length;
+      const dist = this.distToSegment(center, vs[i], vs[j]);
+      if (dist < radius) return true;
+    }
+    return false;
+  }
+
+  /**
    * Generates a rectangle polygon around a segment of a path with a given thickness.
    */
   public static getSegmentRectangle(p1: Point2D, p2: Point2D, thickness: number): Point2D[] {
