@@ -12,6 +12,9 @@ export class InputManager {
   // Event callbacks
   private onPanCallback?: (dx: number, dy: number) => void;
   private onZoomCallback?: (screenX: number, screenY: number, delta: number) => void;
+  private onRightDownCallback?: (screenX: number, screenY: number) => void;
+  private onRightUpCallback?: (screenX: number, screenY: number) => void;
+  private onRightDragCallback?: (screenX: number, screenY: number) => void;
 
   constructor() {}
 
@@ -26,12 +29,19 @@ export class InputManager {
       const newX = e.clientX - rect.left;
       const newY = e.clientY - rect.top;
 
-      // If dragging with middle or right button, trigger pan
-      if (this.isRightDown || this.isMiddleDown) {
+      // If dragging with middle button, trigger pan
+      if (this.isMiddleDown) {
         const dx = this.mouseX - newX;
         const dy = this.mouseY - newY;
         if (this.onPanCallback) {
           this.onPanCallback(dx, dy);
+        }
+      }
+
+      // If dragging with right button, trigger right-drag callback
+      if (this.isRightDown) {
+        if (this.onRightDragCallback) {
+          this.onRightDragCallback(newX, newY);
         }
       }
 
@@ -45,6 +55,9 @@ export class InputManager {
     if (e.button === 2) {
       this.isRightDown = true;
       e.preventDefault(); // Prevent context menu
+      if (this.onRightDownCallback) {
+        this.onRightDownCallback(this.mouseX, this.mouseY);
+      }
     }
     if (e.button === 1) {
       this.isMiddleDown = true;
@@ -54,7 +67,12 @@ export class InputManager {
 
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.isLeftDown = false;
-      if (e.button === 2) this.isRightDown = false;
+      if (e.button === 2) {
+        this.isRightDown = false;
+        if (this.onRightUpCallback) {
+          this.onRightUpCallback(this.mouseX, this.mouseY);
+        }
+      }
       if (e.button === 1) this.isMiddleDown = false;
     });
 
@@ -80,5 +98,17 @@ export class InputManager {
 
   public onZoom(callback: (screenX: number, screenY: number, delta: number) => void): void {
     this.onZoomCallback = callback;
+  }
+
+  public onRightDown(callback: (screenX: number, screenY: number) => void): void {
+    this.onRightDownCallback = callback;
+  }
+
+  public onRightUp(callback: (screenX: number, screenY: number) => void): void {
+    this.onRightUpCallback = callback;
+  }
+
+  public onRightDrag(callback: (screenX: number, screenY: number) => void): void {
+    this.onRightDragCallback = callback;
   }
 }

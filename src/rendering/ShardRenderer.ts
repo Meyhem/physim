@@ -51,24 +51,11 @@ export class ShardRenderer {
     const matType = (labelParts[1] as MaterialType) || MaterialType.DIRT;
     const props = Materials[matType] || Materials[MaterialType.DIRT];
 
-    // Draw the vertices relative to the body's center
-    // Matter.js body.parts[0].vertices contains the polygon vertices
-    const vertices = body.parts[0].vertices;
-    if (vertices.length > 0) {
-      // Vertices are relative to the body position in Matter.js if we use relative offsets, 
-      // but in body.vertices they are in absolute coordinates. 
-      // To draw relative to graphics (0, 0), we subtract the body position:
-      const cx = body.position.x;
-      const cy = body.position.y;
+    // All shards are circles now — use circleRadius from the body
+    const radius = (body as any).circleRadius || 5;
+    graphics.circle(0, 0, radius);
 
-      graphics.moveTo(vertices[0].x - cx, vertices[0].y - cy);
-      for (let i = 1; i < vertices.length; i++) {
-        graphics.lineTo(vertices[i].x - cx, vertices[i].y - cy);
-      }
-      graphics.closePath();
-    }
-
-    // Set fill color and stroke after path is created
+    // Set fill color and stroke
     graphics.fill({ color: props.color });
     graphics.stroke({ color: 0x111116, width: 1 });
 

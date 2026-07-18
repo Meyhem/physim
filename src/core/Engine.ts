@@ -18,6 +18,7 @@ import { SaveManager } from '../save/SaveManager.ts';
 import { Body, Bodies, Composite } from 'matter-js';
 import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
+import { Building } from '../buildings/Building.ts';
 
 export class Engine {
   private camera!: Camera;
@@ -40,6 +41,10 @@ export class Engine {
   public onCustomShapesUpdated?: (defs: CustomShapeDef[]) => void;
 
   public activePlacement: { type: 'building' | 'custom_shape'; targetId: string } | null = null;
+
+  // Right-click building dragging
+  private draggingBuilding: Building | null = null;
+  private dragOffset: { x: number; y: number } = { x: 0, y: 0 };
 
   // Save System
   public saveManager!: SaveManager;
@@ -112,6 +117,57 @@ export class Engine {
     // 9. Connect input callbacks to camera
     this.inputManager.onPan((dx, dy) => this.camera.pan(dx, dy));
     this.inputManager.onZoom((x, y, delta) => this.camera.zoomAt(x, y, delta));
+
+    // 10. Right-click building drag callbacks
+    this.inputManager.onRightDown((screenX, screenY) => {
+      const worldPos = this.camera.screenToWorld(screenX, screenY);
+      // Hit-test for building bodies
+      const hits = this.physicsWorld.queryPoint(worldPos.x, worldPos.y, 'building:');
+      if (hits.length > 0) {
+        const hitBody = hits[0];
+        // Find the building that owns this body
+        const building = this.buildingManager.getBuildings().find(b => {
+          const bodies = b.getBodies();
+          return bodies.some(bod => bod === hitBody || bod.parts.includes(hitBody));
+        });
+        if (building) {
+          this.draggingBuilding = building;
+          const body = building.getBody();
+          if (body) {
+            this.dragOffset.x = body.position.x - worldPos.x;
+            this.dragOffset.y = body.position.y - worldPos.y;
+            Body.setStatic(body, true);
+          }
+        }
+      }
+    });
+
+    this.inputManager.onRightDrag((screenX, screenY) => {
+      if (this.draggingBuilding) {
+        const worldPos = this.camera.screenToWorld(screenX, screenY);
+        const body = this.draggingBuilding.getBody();
+        if (body) {
+          Body.setPosition(body, {
+            x: worldPos.x + this.dragOffset.x,
+            y: worldPos.y + this.dragOffset.y
+          });
+        }
+      }
+    });
+
+    this.inputManager.onRightUp((_screenX, _screenY) => {
+      if (this.draggingBuilding) {
+        const body = this.draggingBuilding.getBody();
+        if (body) {
+          Body.setStatic(body, false);
+          // Update building coordinates to match final body position
+          this.draggingBuilding.x = body.position.x;
+          this.draggingBuilding.y = body.position.y;
+          this.draggingBuilding.angle = body.angle;
+        }
+        this.draggingBuilding = null;
+      }
+    });
 
     // Handle window resizing
     window.addEventListener('resize', () => {
@@ -337,23 +393,19 @@ export class Engine {
       customShapeDefs: this.customShapeDefs,
       customShapes: [], // deprecated, saved inside buildings now
       shards: Array.from(this.physicsWorld.getShardBodies()).map(s => {
-        const relativeVerts = s.parts[0].vertices.map(v => ({
-          x: v.x - s.position.x,
-          y: v.y - s.position.y
-        }));
-        
         const label = s.label;
         const isIngot = label.startsWith('ingot:');
+        const radius = (s as any).circleRadius || 5;
         
         return {
           label,
           isIngot,
+          radius,
           x: s.position.x,
           y: s.position.y,
           vx: s.velocity.x,
           vy: s.velocity.y,
-          angle: s.angle,
-          vertices: relativeVerts
+          angle: s.angle
         };
       })
     };
@@ -442,10 +494,11 @@ export class Engine {
         for (const s of state.shards) {
           const labelParts = s.label.split(':');
           const matType = labelParts[1];
+          const props = Materials[matType.replace('_crushed', '') as MaterialType] || Materials[MaterialType.DIRT];
           
+          // Support both new circle format (radius) and legacy polygon format (vertices)
           let body;
           if (s.isIngot) {
-            const props = Materials[matType as MaterialType] || Materials[MaterialType.DIRT];
             body = Bodies.rectangle(s.x, s.y, 36, 14, {
               friction: 0.1,
               restitution: 0.2,
@@ -458,8 +511,11 @@ export class Engine {
             body.label = s.label;
             Composite.add(this.physicsWorld.world, body);
             this.physicsWorld.getShardBodies().add(body);
-          } else {
-            const props = Materials[matType.replace('_crushed', '') as MaterialType] || Materials[MaterialType.DIRT];
+          } else if (s.radius != null) {
+            // New circle format
+            body = this.physicsWorld.createCircleShardBody(s.x, s.y, s.radius, matType, props.density);
+          } else if (s.vertices) {
+            // Legacy polygon format — convert to circle via createShardBody
             body = this.physicsWorld.createShardBody(s.vertices, matType, props.density);
           }
 

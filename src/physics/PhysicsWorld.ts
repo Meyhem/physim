@@ -1,4 +1,4 @@
-import { Engine, World, Composite, MouseConstraint, Mouse, Body, Bodies } from 'matter-js';
+import { Engine, World, Composite, MouseConstraint, Mouse, Body, Bodies, Query } from 'matter-js';
 import { CollisionCategories } from '../core/Constants.ts';
 import { PolygonUtils } from './PolygonUtils.ts';
 import type { Point2D } from './PolygonUtils.ts';
@@ -114,32 +114,18 @@ export class PhysicsWorld {
   }
 
   /**
-   * Creates a dynamic shard body from a set of points (usually a Voronoi triangle/polygon).
+   * Creates a dynamic shard body as a circle. Radius is derived from
+   * the source polygon's area (r = sqrt(area / π)).
+   * Circles are dramatically faster for collision detection than polygons.
    */
   public createShardBody(points: Point2D[], materialType: string, density: number): Body {
-    // If polygon is too small, skip creating physics body
-    if (PolygonUtils.getArea(points) < 10) {
-      // Create a tiny circle instead
-      const centroid = PolygonUtils.getCentroid(points);
-      const circleBody = Bodies.circle(centroid.x, centroid.y, 3, {
-        friction: 0.1,
-        restitution: 0.1,
-        density: density * 0.5,
-        collisionFilter: {
-          category: CollisionCategories.SHARDS,
-          mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.TOOLS | CollisionCategories.BUILDINGS
-        }
-      });
-      circleBody.label = `shard:${materialType}`;
-      Composite.add(this.world, circleBody);
-      this.shardBodies.add(circleBody);
-      return circleBody;
-    }
-
+    const area = PolygonUtils.getArea(points);
     const centroid = PolygonUtils.getCentroid(points);
-    const centeredPoints = points.map(p => ({ x: p.x - centroid.x, y: p.y - centroid.y }));
 
-    const body = Bodies.fromVertices(centroid.x, centroid.y, [centeredPoints], {
+    // Derive radius from polygon area, with a minimum of 3px
+    const radius = Math.max(3, Math.sqrt(area / Math.PI));
+
+    const body = Bodies.circle(centroid.x, centroid.y, radius, {
       friction: 0.2,
       restitution: 0.1,
       density: density,
@@ -150,7 +136,28 @@ export class PhysicsWorld {
     });
 
     body.label = `shard:${materialType}`;
-    
+
+    Composite.add(this.world, body);
+    this.shardBodies.add(body);
+    return body;
+  }
+
+  /**
+   * Creates a circle shard body directly from a position and radius.
+   */
+  public createCircleShardBody(x: number, y: number, radius: number, materialType: string, density: number): Body {
+    const body = Bodies.circle(x, y, Math.max(3, radius), {
+      friction: 0.2,
+      restitution: 0.1,
+      density: density,
+      collisionFilter: {
+        category: CollisionCategories.SHARDS,
+        mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.TOOLS | CollisionCategories.BUILDINGS
+      }
+    });
+
+    body.label = `shard:${materialType}`;
+
     Composite.add(this.world, body);
     this.shardBodies.add(body);
     return body;
@@ -163,6 +170,19 @@ export class PhysicsWorld {
 
   public getShardBodies(): Set<Body> {
     return this.shardBodies;
+  }
+
+  /**
+   * Queries bodies at a world point. Returns all bodies whose bounds contain the point.
+   * Optionally filter by label prefix.
+   */
+  public queryPoint(worldX: number, worldY: number, labelPrefix?: string): Body[] {
+    const allBodies = Composite.allBodies(this.world);
+    const hits = Query.point(allBodies, { x: worldX, y: worldY });
+    if (labelPrefix) {
+      return hits.filter(b => b.label.startsWith(labelPrefix));
+    }
+    return hits;
   }
 
   public clearAll(): void {
