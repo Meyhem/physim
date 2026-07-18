@@ -5,7 +5,6 @@ import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
 import { CustomShape } from '../buildings/CustomShape.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
-import type { Point2D } from '../physics/PolygonUtils.ts';
 
 export class BuildingRenderer {
   private container: Container;
@@ -178,77 +177,51 @@ export class BuildingRenderer {
   private updateGhost(buildingManager: BuildingManager, customShapeDefs: CustomShapeDef[]): void {
     this.ghostGraphics.clear();
 
-    // 1. If in brush tool, draw the brush path ghost (supports multiple strokes)
-    const hasGhostPaths = this.engine.ghostPaths.length > 0;
-    const hasCurrentStroke = (this.engine.currentStroke || []).length >= 2;
-    if (this.engine.activeTool === 'brush' && (hasGhostPaths || hasCurrentStroke)) {
-      const brushType = this.engine.activeBrush;
-      const thickness = this.engine.ghostThickness;
+    // 1. If in brush tool and actively drawing, draw a preview line from lastPoint to mouse
+    if (this.engine.activeTool === 'brush' && this.engine.brushIsDrawing) {
+      const lastPoint = this.engine.brushLastPoint;
+      const previewEnd = this.engine.brushPreviewEnd;
+      if (lastPoint && previewEnd) {
+        const brushType = this.engine.activeBrush;
+        const thickness = this.engine.brushThickness;
 
-      // All strokes are stored in world coordinates, render at origin
-      this.ghostGraphics.x = 0;
-      this.ghostGraphics.y = 0;
-      this.ghostGraphics.rotation = 0;
+        this.ghostGraphics.x = 0;
+        this.ghostGraphics.y = 0;
+        this.ghostGraphics.rotation = 0;
 
-      const strokeColor = brushType === 'solid' ? 0x7f8c8d : 0xf39c12;
-
-      // Collect all strokes to draw (completed + in-progress)
-      const allStrokes: Point2D[][] = [...this.engine.ghostPaths];
-      if (hasCurrentStroke) {
-        allStrokes.push(this.engine.currentStroke);
-      }
-
-      // Helper: draw a stroke's translucent outline + core line + arrows
-      const drawStroke = (pts: Point2D[]) => {
-        if (pts.length < 2) return;
+        const strokeColor = brushType === 'solid' ? 0x7f8c8d : 0xf39c12;
 
         // Translucent outline
-        this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-          this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
-        }
-        this.ghostGraphics.stroke({ color: strokeColor, width: thickness, alpha: 0.4, cap: 'round', join: 'round' });
+        this.ghostGraphics.moveTo(lastPoint.x, lastPoint.y);
+        this.ghostGraphics.lineTo(previewEnd.x, previewEnd.y);
+        this.ghostGraphics.stroke({ color: strokeColor, width: thickness, alpha: 0.4, cap: 'round' });
 
         // Core line
-        this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-          this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
-        }
-        this.ghostGraphics.stroke({ color: strokeColor, width: 2, alpha: 0.8, cap: 'round', join: 'round' });
+        this.ghostGraphics.moveTo(lastPoint.x, lastPoint.y);
+        this.ghostGraphics.lineTo(previewEnd.x, previewEnd.y);
+        this.ghostGraphics.stroke({ color: strokeColor, width: 2, alpha: 0.8, cap: 'round' });
 
-        // Conveyor direction arrows
-        if (brushType === 'conveyor' && pts.length >= 2) {
-          let accumulatedDist = 0;
-          const arrowSpacing = 40;
-          for (let i = 0; i < pts.length - 1; i++) {
-            const p1 = pts[i];
-            const p2 = pts[i + 1];
-            const dx = p2.x - p1.x;
-            const dy = p2.y - p1.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            accumulatedDist += len;
-            if (accumulatedDist >= arrowSpacing) {
-              accumulatedDist = 0;
-              const segmentAngle = Math.atan2(dy, dx);
-              const arrowX = p2.x;
-              const arrowY = p2.y;
-              const cosA = Math.cos(segmentAngle);
-              const sinA = Math.sin(segmentAngle);
-              const pA = { x: arrowX, y: arrowY };
-              const pB = { x: arrowX - 10 * cosA - 5 * sinA, y: arrowY - 10 * sinA + 5 * cosA };
-              const pC = { x: arrowX - 10 * cosA + 5 * sinA, y: arrowY - 10 * sinA - 5 * cosA };
-              this.ghostGraphics.moveTo(pA.x, pA.y);
-              this.ghostGraphics.lineTo(pB.x, pB.y);
-              this.ghostGraphics.lineTo(pC.x, pC.y);
-              this.ghostGraphics.closePath();
-              this.ghostGraphics.fill({ color: strokeColor, alpha: 0.8 });
-            }
+        // Conveyor direction arrow
+        if (brushType === 'conveyor') {
+          const dx = previewEnd.x - lastPoint.x;
+          const dy = previewEnd.y - lastPoint.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          if (len > 10) {
+            const midX = (lastPoint.x + previewEnd.x) / 2;
+            const midY = (lastPoint.y + previewEnd.y) / 2;
+            const segmentAngle = Math.atan2(dy, dx);
+            const cosA = Math.cos(segmentAngle);
+            const sinA = Math.sin(segmentAngle);
+            const pA = { x: midX, y: midY };
+            const pB = { x: midX - 10 * cosA - 5 * sinA, y: midY - 10 * sinA + 5 * cosA };
+            const pC = { x: midX - 10 * cosA + 5 * sinA, y: midY - 10 * sinA - 5 * cosA };
+            this.ghostGraphics.moveTo(pA.x, pA.y);
+            this.ghostGraphics.lineTo(pB.x, pB.y);
+            this.ghostGraphics.lineTo(pC.x, pC.y);
+            this.ghostGraphics.closePath();
+            this.ghostGraphics.fill({ color: strokeColor, alpha: 0.8 });
           }
         }
-      };
-
-      for (const stroke of allStrokes) {
-        drawStroke(stroke);
       }
       return;
     }

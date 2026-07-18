@@ -265,39 +265,94 @@ export class PolygonUtils {
       return [this.getCirclePolygon(points[0], thickness / 2)];
     }
 
-    const polys: Point2D[][] = [];
+    // Check if path is closed
+    const first = points[0];
+    const last = points[points.length - 1];
+    const dx = first.x - last.x;
+    const dy = first.y - last.y;
+    const isClosed = points.length >= 3 && Math.sqrt(dx * dx + dy * dy) < thickness;
 
-    // 1. Add circles at all joints
+    if (isClosed) {
+      // For closed paths, generate individual convex trapezoids per segment.
+      // Each trapezoid is: left-offset(p1), left-offset(p2), right-offset(p2), right-offset(p1)
+      // This produces a clean ring with no holes or degenerate geometry.
+      return this.generateRingSegments(points, thickness);
+    }
+
+    // Open path: union of segment rectangles and joint circles
+    const polys: Point2D[][] = [];
     for (const pt of points) {
       polys.push(this.getCirclePolygon(pt, thickness / 2));
     }
-
-    // 2. Add rectangles for all segments
     for (let i = 0; i < points.length - 1; i++) {
       polys.push(this.getSegmentRectangle(points[i], points[i + 1], thickness));
     }
+    return this.unionList(polys);
+  }
 
-    // 3. Union everything together
-    const unioned = this.unionList(polys);
+  /**
+   * Generates convex trapezoid segments for a closed ring path.
+   * Each segment is a simple 4-vertex convex polygon that Matter.js
+   * can decompose cleanly.
+   */
+  private static generateRingSegments(points: Point2D[], thickness: number): Point2D[][] {
+    const half = thickness / 2;
+    const n = points.length;
+    const segments: Point2D[][] = [];
 
-    // 4. If path is closed (endpoints close together), punch a hole
-    //    to prevent the interior from being filled.
-    if (points.length >= 3) {
-      const first = points[0];
-      const last = points[points.length - 1];
-      const dx = first.x - last.x;
-      const dy = first.y - last.y;
-      if (Math.sqrt(dx * dx + dy * dy) < thickness) {
-        const result: Point2D[][] = [];
-        for (const poly of unioned) {
-          const diff = this.difference(poly, points);
-          result.push(...diff);
-        }
-        return result;
+    // Precompute offset normals at each point (average of adjacent segment normals)
+    const offsets: { left: Point2D; right: Point2D }[] = [];
+
+    for (let i = 0; i < n; i++) {
+      const prev = points[(i - 1 + n) % n];
+      const curr = points[i];
+      const next = points[(i + 1) % n];
+
+      const dx1 = curr.x - prev.x;
+      const dy1 = curr.y - prev.y;
+      const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1) || 1;
+      const dx2 = next.x - curr.x;
+      const dy2 = next.y - curr.y;
+      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) || 1;
+
+      // Unit normals pointing left of each segment direction
+      const nx1 = -dy1 / len1;
+      const ny1 = dx1 / len1;
+      const nx2 = -dy2 / len2;
+      const ny2 = dx2 / len2;
+
+      // Average and normalize for the corner normal
+      let mx = nx1 + nx2;
+      let my = ny1 + ny2;
+      const mLen = Math.sqrt(mx * mx + my * my);
+
+      if (mLen < 0.001) {
+        mx = nx1;
+        my = ny1;
+      } else {
+        mx /= mLen;
+        my /= mLen;
       }
+
+      offsets.push({
+        left: { x: curr.x + mx * half, y: curr.y + my * half },
+        right: { x: curr.x - mx * half, y: curr.y - my * half },
+      });
     }
 
-    return unioned;
+    // Generate one trapezoid per segment
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const seg: Point2D[] = [
+        offsets[i].left,
+        offsets[j].left,
+        offsets[j].right,
+        offsets[i].right,
+      ];
+      segments.push(seg);
+    }
+
+    return segments;
   }
 
   /**
@@ -427,24 +482,112 @@ export class PolygonUtils {
   private static multiPolygonToPointArrays(mp: polygonClipping.MultiPolygon): Point2D[][] {
     const result: Point2D[][] = [];
     for (const polygon of mp) {
-      // We take the outer boundary (the first ring)
-      if (polygon.length > 0) {
-        const outerRing = polygon[0];
-        // Convert to Point2D[] and deduplicate sequential equal points
-        const points: Point2D[] = [];
-        for (let i = 0; i < outerRing.length; i++) {
-          const pt = outerRing[i];
-          const nextPt = outerRing[(i + 1) % outerRing.length];
-          const distSq = (pt[0] - nextPt[0]) ** 2 + (pt[1] - nextPt[1]) ** 2;
-          if (distSq > 0.001) {
-            points.push({ x: pt[0], y: pt[1] });
-          }
-        }
+      if (polygon.length === 0) continue;
+
+      const outerRing = polygon[0];
+      const holes = polygon.slice(1);
+
+      if (holes.length === 0) {
+        // No holes — simple polygon
+        const points = this.ringToPoints(outerRing);
         if (points.length >= 3) {
           result.push(points);
+        }
+      } else {
+        // Has holes — convert to simple polygon(s) using bridge edges
+        const simplePolys = this.polygonWithHolesToSimple(outerRing, holes);
+        for (const sp of simplePolys) {
+          if (sp.length >= 3) {
+            result.push(sp);
+          }
         }
       }
     }
     return result;
+  }
+
+  /**
+   * Converts a polygon with holes into one or more simple polygons
+   * by connecting each hole to the outer boundary with a zero-width bridge.
+   */
+  private static polygonWithHolesToSimple(
+    outer: [number, number][],
+    holes: [number, number][][],
+  ): Point2D[][] {
+    const result: Point2D[][] = [];
+    let currentOuter = outer;
+
+    for (const hole of holes) {
+      if (hole.length < 3) continue;
+
+      // Find the rightmost hole vertex and the closest outer vertex to its right
+      let holeRightmostIdx = 0;
+      for (let i = 1; i < hole.length; i++) {
+        if (hole[i][0] > hole[holeRightmostIdx][0]) {
+          holeRightmostIdx = i;
+        }
+      }
+      const holePt = hole[holeRightmostIdx];
+
+      // Find intersection of a ray going right from holePt with the outer ring
+      let bestOuterIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < currentOuter.length; i++) {
+        const a = currentOuter[i];
+        const b = currentOuter[(i + 1) % currentOuter.length];
+        // Check if the horizontal ray from holePt intersects segment a-b
+        if ((a[1] > holePt[1]) !== (b[1] > holePt[1])) {
+          const intersectX = a[0] + ((b[0] - a[0]) * (holePt[1] - a[1])) / (b[1] - a[1]);
+          if (intersectX > holePt[0] && intersectX - holePt[0] < bestDist) {
+            bestDist = intersectX - holePt[0];
+            bestOuterIdx = i;
+          }
+        }
+      }
+
+      // Build a simple polygon by bridging: walk outer, bridge to hole, walk hole, bridge back
+      const simplePoly: Point2D[] = [];
+
+      // Walk outer from 0 to bestOuterIdx
+      for (let i = 0; i <= bestOuterIdx; i++) {
+        simplePoly.push({ x: currentOuter[i][0], y: currentOuter[i][1] });
+      }
+      // Bridge to hole
+      simplePoly.push({ x: holePt[0], y: holePt[1] });
+      // Walk hole starting from rightmost vertex
+      for (let i = 0; i < hole.length; i++) {
+        const idx = (holeRightmostIdx + i) % hole.length;
+        simplePoly.push({ x: hole[idx][0], y: hole[idx][1] });
+      }
+      // Bridge back
+      simplePoly.push({ x: holePt[0], y: holePt[1] });
+      // Continue walking outer from bestOuterIdx+1 to end
+      for (let i = bestOuterIdx + 1; i < currentOuter.length; i++) {
+        simplePoly.push({ x: currentOuter[i][0], y: currentOuter[i][1] });
+      }
+
+      result.push(simplePoly);
+    }
+
+    // If no holes were processed (all had < 3 points), return the outer ring
+    if (result.length === 0) {
+      const pts = this.ringToPoints(outer);
+      if (pts.length >= 3) result.push(pts);
+    }
+
+    return result;
+  }
+
+  private static ringToPoints(ring: [number, number][]): Point2D[] {
+    const points: Point2D[] = [];
+    for (let i = 0; i < ring.length; i++) {
+      const pt = ring[i];
+      const nextPt = ring[(i + 1) % ring.length];
+      const distSq = (pt[0] - nextPt[0]) ** 2 + (pt[1] - nextPt[1]) ** 2;
+      if (distSq > 0.001) {
+        points.push({ x: pt[0], y: pt[1] });
+      }
+    }
+    return points;
   }
 }

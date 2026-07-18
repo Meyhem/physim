@@ -4,22 +4,12 @@ import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { BuildingManager } from '../buildings/BuildingManager.ts';
 import { Building } from '../buildings/Building.ts';
 import { Body } from 'matter-js';
-import type { Point2D } from '../physics/PolygonUtils.ts';
-
-export interface BrushGhostProvider {
-  hasStrokeData(): boolean;
-  hitTestGhost(worldPos: Point2D): boolean;
-  ghostPosition: Point2D;
-  ghostDragOffset: Point2D;
-  draggingGhost: boolean;
-}
 
 export class DragController {
   private camera: Camera;
   private inputManager: InputManager;
   private physicsWorld: PhysicsWorld;
   private buildingManager: BuildingManager;
-  private brushGhostProvider: BrushGhostProvider | null = null;
 
   private draggingBuilding: Building | null = null;
   private draggingShard: Body | null = null;
@@ -35,10 +25,6 @@ export class DragController {
     this.inputManager = inputManager;
     this.physicsWorld = physicsWorld;
     this.buildingManager = buildingManager;
-  }
-
-  public setBrushGhostProvider(provider: BrushGhostProvider | null): void {
-    this.brushGhostProvider = provider;
   }
 
   public isDraggingBuilding(): boolean {
@@ -58,25 +44,11 @@ export class DragController {
   private handleRightDown(screenX: number, screenY: number): void {
     const worldPos = this.camera.screenToWorld(screenX, screenY);
 
-    if (this.tryDragGhost(worldPos)) return;
     if (this.tryDragBuilding(worldPos)) return;
     this.tryDragShard(worldPos);
   }
 
-  private tryDragGhost(worldPos: Point2D): boolean {
-    const provider = this.brushGhostProvider;
-    if (!provider || !provider.hasStrokeData()) return false;
-    if (!provider.hitTestGhost(worldPos)) return false;
-
-    provider.draggingGhost = true;
-    provider.ghostDragOffset = {
-      x: provider.ghostPosition.x - worldPos.x,
-      y: provider.ghostPosition.y - worldPos.y,
-    };
-    return true;
-  }
-
-  private tryDragBuilding(worldPos: Point2D): boolean {
+  private tryDragBuilding(worldPos: { x: number; y: number }): boolean {
     const hits = this.physicsWorld.queryPoint(worldPos.x, worldPos.y);
     const hitBody = hits.find(
       b => b.label.startsWith('building:') || b.label.startsWith('custom:'),
@@ -99,7 +71,7 @@ export class DragController {
     return true;
   }
 
-  private tryDragShard(worldPos: Point2D): boolean {
+  private tryDragShard(worldPos: { x: number; y: number }): boolean {
     const hits = this.physicsWorld.queryPoint(worldPos.x, worldPos.y);
     const hitShard = hits.find(b => b.label.startsWith('shard:'));
     if (!hitShard) return false;
@@ -113,12 +85,8 @@ export class DragController {
 
   private handleRightDrag(screenX: number, screenY: number): void {
     const worldPos = this.camera.screenToWorld(screenX, screenY);
-    const provider = this.brushGhostProvider;
 
-    if (provider && provider.draggingGhost) {
-      provider.ghostPosition.x = worldPos.x + provider.ghostDragOffset.x;
-      provider.ghostPosition.y = worldPos.y + provider.ghostDragOffset.y;
-    } else if (this.draggingBuilding) {
+    if (this.draggingBuilding) {
       const body = this.draggingBuilding.getBody();
       if (body) {
         Body.setPosition(body, {
@@ -135,11 +103,7 @@ export class DragController {
   }
 
   private handleRightUp(_screenX: number, _screenY: number): void {
-    const provider = this.brushGhostProvider;
-
-    if (provider && provider.draggingGhost) {
-      provider.draggingGhost = false;
-    } else if (this.draggingBuilding) {
+    if (this.draggingBuilding) {
       const body = this.draggingBuilding.getBody();
       if (body) {
         const isCustom = body.label.startsWith('custom:');

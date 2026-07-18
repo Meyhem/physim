@@ -5,19 +5,13 @@ import { CustomShape } from '../buildings/CustomShape.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 import { PolygonUtils } from '../physics/PolygonUtils.ts';
 import type { Point2D } from '../physics/PolygonUtils.ts';
-import type { BrushGhostProvider } from '../input/DragController.ts';
 
-export class BrushController implements BrushGhostProvider {
+export class BrushController {
   public activeBrush: 'solid' | 'conveyor' | null = null;
-  public ghostPaths: Point2D[][] = [];
-  public ghostPosition: Point2D = { x: 0, y: 0 };
-  public ghostAngle: number = 0;
-  public ghostThickness: number = 40;
-  public isDrawingGhost: boolean = false;
-  public draggingGhost: boolean = false;
-  public ghostDragOffset: Point2D = { x: 0, y: 0 };
-  public currentStroke: Point2D[] = [];
-  public strokeCount: number = 0;
+  public brushThickness: number = 40;
+  public isDrawing: boolean = false;
+  public firstPoint: Point2D | null = null;
+  public lastPoint: Point2D | null = null;
 
   private terrainManager: TerrainManager;
   private buildingManager: BuildingManager;
@@ -43,161 +37,109 @@ export class BrushController implements BrushGhostProvider {
     this.onCustomShapesUpdated = cb;
   }
 
-  public hasStrokeData(): boolean {
-    return this.ghostPaths.length > 0 || this.currentStroke.length >= 2;
+  /**
+   * Begin a new path at the given world position.
+   */
+  public startPath(worldPos: Point2D): void {
+    this.isDrawing = true;
+    this.firstPoint = { x: worldPos.x, y: worldPos.y };
+    this.lastPoint = { x: worldPos.x, y: worldPos.y };
   }
 
-  public getWorldStrokes(): Point2D[][] {
-    const ox = this.ghostPosition.x;
-    const oy = this.ghostPosition.y;
-    return this.ghostPaths.map(stroke =>
-      stroke.map(p => ({ x: p.x + ox, y: p.y + oy })),
-    );
-  }
+  /**
+   * Place a segment from lastPoint to worldPos, creating a shape immediately.
+   */
+  public placeSegment(worldPos: Point2D): void {
+    if (!this.lastPoint) return;
 
-  public hitTestGhost(worldPos: Point2D): boolean {
-    const allPoints = this.getAllStrokePoints();
-    if (allPoints.length < 2) return false;
+    const p1 = this.lastPoint;
+    const p2 = worldPos;
 
-    let minDist = Infinity;
-    for (let i = 0; i < allPoints.length - 1; i++) {
-      const d = PolygonUtils.distToSegment(worldPos, allPoints[i], allPoints[i + 1]);
-      if (d < minDist) minDist = d;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 2) return; // Too short, ignore
+
+    // Generate segment rectangle
+    const segRect = PolygonUtils.getSegmentRectangle(p1, p2, this.brushThickness);
+
+    // Clip against terrain
+    let clippedPolys = [segRect];
+    const terrainBlocks = this.terrainManager.getBlocks();
+    for (const block of terrainBlocks) {
+      const tempClipped: Point2D[][] = [];
+      for (const poly of clippedPolys) {
+        const diff = PolygonUtils.difference(poly, block.points);
+        tempClipped.push(...diff);
+      }
+      clippedPolys = tempClipped;
     }
-
-    return minDist < (this.ghostThickness / 2 + 15);
-  }
-
-  public clearBrush(): void {
-    this.ghostPaths = [];
-    this.currentStroke = [];
-    this.isDrawingGhost = false;
-    this.draggingGhost = false;
-    this.strokeCount = 0;
-    this.ghostPosition = { x: 0, y: 0 };
-    this.ghostAngle = 0;
-  }
-
-  public confirmBrush(): void {
-    const worldStrokes = this.collectWorldStrokes();
-    if (worldStrokes.length === 0) {
-      alert('Please draw a line of at least 2 points first!');
-      return;
-    }
-
-    const worldPoints = this.flattenStrokes(worldStrokes);
-    if (worldPoints.length < 2) {
-      alert('Please draw a line of at least 2 points first!');
-      return;
-    }
-
-    // Simplify path to reduce triangle count (tolerance in world pixels)
-    const simplifiedPoints = PolygonUtils.simplifyPath(worldPoints, 20);
-
-    const worldPolys = this.generatePolygons(simplifiedPoints);
-    if (worldPolys.length === 0) {
-      alert('Could not generate shapes from path.');
-      return;
-    }
-
-    let clippedPolys = this.clipAgainstTerrain(worldPolys);
     clippedPolys = clippedPolys.filter(poly => PolygonUtils.getArea(poly) > 10);
 
     if (clippedPolys.length === 0) {
-      alert('Placement cancelled: The drawn shape is completely inside or clipped by the terrain.');
+      // Segment is entirely inside terrain, still advance lastPoint
+      this.lastPoint = { x: worldPos.x, y: worldPos.y };
       return;
     }
 
-    const conveyorSegments = this.generateConveyorSegments([simplifiedPoints]);
+    // Generate conveyor segments if applicable
+    const conveyorSegments = this.generateConveyorSegmentsForRect(p1, p2, segRect);
 
+    // Merge with overlapping same-type buildings
     const { finalWorldPolys, finalWorldConveyorSegments } =
       this.mergeWithExisting(clippedPolys, conveyorSegments);
 
+    // Create the custom shape
     this.createCustomShape(finalWorldPolys, finalWorldConveyorSegments);
-    this.clearBrush();
+
+    // Advance lastPoint
+    this.lastPoint = { x: worldPos.x, y: worldPos.y };
+  }
+
+  /**
+   * Finish the current path.
+   */
+  public finishPath(): void {
+    this.isDrawing = false;
+    this.firstPoint = null;
+    this.lastPoint = null;
+  }
+
+  /**
+   * Cancel the current path (segments already placed remain).
+   */
+  public cancelPath(): void {
+    this.isDrawing = false;
+    this.firstPoint = null;
+    this.lastPoint = null;
   }
 
   // --- Private helpers ---
 
-  private getAllStrokePoints(): Point2D[] {
-    const all: Point2D[] = [];
-    for (const stroke of this.getWorldStrokes()) {
-      all.push(...stroke);
-    }
-    if (this.currentStroke.length >= 2) {
-      all.push(...this.currentStroke);
-    }
-    return all;
-  }
-
-  private collectWorldStrokes(): Point2D[][] {
-    const worldStrokes: Point2D[][] = this.getWorldStrokes();
-    if (this.currentStroke.length >= 2) {
-      worldStrokes.push(this.currentStroke);
-    }
-    return worldStrokes;
-  }
-
-  private flattenStrokes(strokes: Point2D[][]): Point2D[] {
-    const points: Point2D[] = [];
-    for (const stroke of strokes) {
-      points.push(...stroke);
-    }
-    return points;
-  }
-
-  private generatePolygons(worldPoints: Point2D[]): Point2D[][] {
-    return PolygonUtils.pathToPolygons(worldPoints, this.ghostThickness);
-  }
-
-  private clipAgainstTerrain(polys: Point2D[][]): Point2D[][] {
-    let clipped = polys;
-    const terrainBlocks = this.terrainManager.getBlocks();
-    for (const block of terrainBlocks) {
-      const tempClipped: Point2D[][] = [];
-      for (const poly of clipped) {
-        const diff = PolygonUtils.difference(poly, block.points);
-        tempClipped.push(...diff);
-      }
-      clipped = tempClipped;
-    }
-    return clipped;
-  }
-
-  private generateConveyorSegments(
-    worldStrokes: Point2D[][],
+  private generateConveyorSegmentsForRect(
+    p1: Point2D,
+    p2: Point2D,
+    segRect: Point2D[],
   ): { poly: Point2D[]; dir: Point2D }[] {
     if (this.activeBrush !== 'conveyor') return [];
 
-    const segments: { poly: Point2D[]; dir: Point2D }[] = [];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.001) return [];
+
+    const dir = { x: dx / len, y: dy / len };
+
+    let clippedSegs = [segRect];
     const terrainBlocks = this.terrainManager.getBlocks();
-
-    for (const stroke of worldStrokes) {
-      for (let j = 0; j < stroke.length - 1; j++) {
-        const p1 = stroke[j];
-        const p2 = stroke[j + 1];
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len < 0.001) continue;
-
-        const dir = { x: dx / len, y: dy / len };
-        const segRect = PolygonUtils.getSegmentRectangle(p1, p2, this.ghostThickness);
-
-        let clippedSegs = [segRect];
-        for (const block of terrainBlocks) {
-          clippedSegs = clippedSegs.flatMap(poly =>
-            PolygonUtils.difference(poly, block.points),
-          );
-        }
-        clippedSegs = clippedSegs.filter(poly => PolygonUtils.getArea(poly) > 5);
-
-        for (const poly of clippedSegs) {
-          segments.push({ poly, dir });
-        }
-      }
+    for (const block of terrainBlocks) {
+      clippedSegs = clippedSegs.flatMap(poly =>
+        PolygonUtils.difference(poly, block.points),
+      );
     }
-    return segments;
+    clippedSegs = clippedSegs.filter(poly => PolygonUtils.getArea(poly) > 5);
+
+    return clippedSegs.map(poly => ({ poly, dir }));
   }
 
   private mergeWithExisting(
@@ -326,7 +268,7 @@ export class BrushController implements BrushGhostProvider {
       name: defName,
       polygons: relativePolys,
       brushType,
-      thickness: this.ghostThickness,
+      thickness: this.brushThickness,
       conveyorSegments: relativeConveyorSegments,
     };
 

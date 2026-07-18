@@ -25,7 +25,7 @@ export class Toolbar {
 
       <div class="toolbar-section separator">
         <h3 class="toolbar-title">BUILDINGS</h3>
-        
+
         <!-- Predefined Buildings -->
         <button id="build-crusher" class="toolbar-btn" title="Drag to place a Crusher. Q/E to rotate.">
           <span class="icon">⚙️</span> Crusher
@@ -37,7 +37,7 @@ export class Toolbar {
 
       <div class="toolbar-section separator">
         <h3 class="toolbar-title">DRAW BRUSHES</h3>
-        
+
         <!-- Brushes -->
         <button id="brush-solid" class="toolbar-btn" title="Draw solid walls directly into the world">
           <span class="icon">🧱</span> Solid Wall Brush
@@ -46,14 +46,6 @@ export class Toolbar {
           <span class="icon">➡️</span> Conveyor Brush
         </button>
 
-        <!-- Brush Configuration & Confirm/Cancel Menu -->
-        <div id="brush-menu-controls" style="display: none; flex-direction: column; gap: 12px; margin-top: 8px;">
-          <div class="divider-line" style="margin: 4px 0;"></div>
-          <div style="display: flex; gap: 8px; margin-top: 4px;">
-            <button id="brush-btn-clear" class="toolbar-btn secondary-btn" style="padding: 8px; font-size: 11px; flex: 1; text-align: center; justify-content: center;" title="Clear drawn path">🧹 Clear</button>
-            <button id="brush-btn-confirm" class="toolbar-btn active" style="padding: 8px; font-size: 11px; flex: 1.5; text-align: center; justify-content: center;" title="Confirm and place shape">✔️ Confirm</button>
-          </div>
-        </div>
       </div>
 
       <div class="toolbar-section separator">
@@ -88,8 +80,6 @@ export class Toolbar {
     // Brush components
     const brushSolidBtn = this.container.querySelector('#brush-solid') as HTMLButtonElement;
     const brushConveyorBtn = this.container.querySelector('#brush-conveyor') as HTMLButtonElement;
-    const brushClearBtn = this.container.querySelector('#brush-btn-clear') as HTMLButtonElement;
-    const brushConfirmBtn = this.container.querySelector('#brush-btn-confirm') as HTMLButtonElement;
 
     grabBtn.addEventListener('click', () => {
       this.setActiveTool('grab');
@@ -114,14 +104,6 @@ export class Toolbar {
       } else {
         this.setActiveBrush('conveyor');
       }
-    });
-
-    brushClearBtn.addEventListener('click', () => {
-      this.engine.clearBrushDrawing();
-    });
-
-    brushConfirmBtn.addEventListener('click', () => {
-      this.engine.confirmBrushDrawing();
     });
 
     // Mousedown on buildings starts drag-and-hold placement
@@ -154,8 +136,6 @@ export class Toolbar {
     const explosiveBtn = this.container.querySelector('#tool-explosive');
     const brushSolidBtn = this.container.querySelector('#brush-solid');
     const brushConveyorBtn = this.container.querySelector('#brush-conveyor');
-    const brushMenu = this.container.querySelector('#brush-menu-controls') as HTMLDivElement;
-
     if (grabBtn) grabBtn.classList.remove('active');
     if (explosiveBtn) explosiveBtn.classList.remove('active');
     if (brushSolidBtn) brushSolidBtn.classList.remove('active');
@@ -163,8 +143,6 @@ export class Toolbar {
 
     const activeBtn = brushType === 'solid' ? brushSolidBtn : brushConveyorBtn;
     if (activeBtn) activeBtn.classList.add('active');
-
-    if (brushMenu) brushMenu.style.display = 'flex';
   }
 
   private setActiveTool(tool: 'grab' | 'explosive'): void {
@@ -175,8 +153,6 @@ export class Toolbar {
     const explosiveBtn = this.container.querySelector('#tool-explosive');
     const brushSolidBtn = this.container.querySelector('#brush-solid');
     const brushConveyorBtn = this.container.querySelector('#brush-conveyor');
-    const brushMenu = this.container.querySelector('#brush-menu-controls') as HTMLDivElement;
-
     if (grabBtn) grabBtn.classList.remove('active');
     if (explosiveBtn) explosiveBtn.classList.remove('active');
     if (brushSolidBtn) brushSolidBtn.classList.remove('active');
@@ -187,7 +163,5 @@ export class Toolbar {
     if (activeBtn) {
       activeBtn.classList.add('active');
     }
-
-    if (brushMenu) brushMenu.style.display = 'none';
   }
 }

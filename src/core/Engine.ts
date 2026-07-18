@@ -15,6 +15,7 @@ import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 import { SaveManager } from '../save/SaveManager.ts';
 import { DragController } from '../input/DragController.ts';
 import { BrushController } from '../tools/BrushController.ts';
+import type { Point2D } from '../physics/PolygonUtils.ts';
 import { PlacementController } from '../buildings/PlacementController.ts';
 import { SaveLoadController } from '../save/SaveLoadController.ts';
 import { Body } from 'matter-js';
@@ -145,7 +146,6 @@ export class Engine {
       this.physicsWorld,
       this.buildingManager,
     );
-    this.dragController.setBrushGhostProvider(this.brushController);
     this.dragController.setupCallbacks();
 
     this.placementController = new PlacementController(
@@ -190,7 +190,7 @@ export class Engine {
 
     this.explosiveTool.clearPaint();
     if (tool !== 'brush') {
-      this.brushController.clearBrush();
+      this.brushController.cancelPath();
     }
 
     if (tool === 'grab') {
@@ -221,45 +221,19 @@ export class Engine {
     this.brushController.activeBrush = value;
   }
 
-  public get ghostPaths() {
-    return this.brushController.ghostPaths;
+  public get brushThickness(): number {
+    return this.brushController.brushThickness;
   }
 
-  public get ghostPosition() {
-    return this.brushController.ghostPosition;
+  public get brushIsDrawing(): boolean {
+    return this.brushController.isDrawing;
   }
 
-  public get ghostAngle() {
-    return this.brushController.ghostAngle;
+  public get brushLastPoint(): Point2D | null {
+    return this.brushController.lastPoint;
   }
 
-  public get ghostThickness() {
-    return this.brushController.ghostThickness;
-  }
-
-  public get currentStroke() {
-    return this.brushController.currentStroke;
-  }
-
-  public hasStrokeData(): boolean {
-    return this.brushController.hasStrokeData();
-  }
-
-  public getWorldStrokes() {
-    return this.brushController.getWorldStrokes();
-  }
-
-  public hitTestGhost(worldPos: { x: number; y: number }): boolean {
-    return this.brushController.hitTestGhost(worldPos);
-  }
-
-  public clearBrushDrawing(): void {
-    this.brushController.clearBrush();
-  }
-
-  public confirmBrushDrawing(): void {
-    this.brushController.confirmBrush();
-  }
+  public brushPreviewEnd: Point2D | null = null;
 
   // --- Placement delegation ---
 
@@ -419,45 +393,40 @@ export class Engine {
     }
   }
 
-  private updateBrushTool(dt: number): void {
-    if (this.inputManager.isKeyPressed('q')) {
-      this.brushController.ghostAngle -= dt * 2.5;
-    }
-    if (this.inputManager.isKeyPressed('e')) {
-      this.brushController.ghostAngle += dt * 2.5;
-    }
+  private wasLeftDown: boolean = false;
+  private wasRightDown: boolean = false;
 
+  private updateBrushTool(_dt: number): void {
     const worldPos = this.camera.screenToWorld(
       this.inputManager.mouseX,
       this.inputManager.mouseY,
     );
 
-    if (this.brushController.draggingGhost) return;
-
-    if (this.inputManager.isLeftDown) {
-      if (!this.brushController.isDrawingGhost) {
-        this.brushController.isDrawingGhost = true;
-        this.brushController.currentStroke = [worldPos];
-        this.brushController.ghostAngle = 0;
-      } else {
-        const lastPt = this.brushController.currentStroke[this.brushController.currentStroke.length - 1];
-        const dx = worldPos.x - lastPt.x;
-        const dy = worldPos.y - lastPt.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist > 8) {
-          this.brushController.currentStroke.push(worldPos);
-        }
-      }
+    // Track preview endpoint for renderer
+    if (this.brushController.isDrawing) {
+      this.brushPreviewEnd = worldPos;
     } else {
-      if (this.brushController.isDrawingGhost) {
-        this.brushController.isDrawingGhost = false;
-        if (this.brushController.currentStroke.length >= 2) {
-          this.brushController.ghostPaths.push([...this.brushController.currentStroke]);
-          this.brushController.strokeCount++;
-        }
-        this.brushController.currentStroke = [];
+      this.brushPreviewEnd = null;
+    }
+
+    // LMB click: start path or place segment
+    if (this.inputManager.isLeftDown && !this.wasLeftDown) {
+      if (!this.brushController.isDrawing) {
+        this.brushController.startPath(worldPos);
+      } else {
+        this.brushController.placeSegment(worldPos);
       }
     }
+
+    // RMB click: finish path
+    if (this.inputManager.isRightDown && !this.wasRightDown) {
+      if (this.brushController.isDrawing) {
+        this.brushController.finishPath();
+      }
+    }
+
+    this.wasLeftDown = this.inputManager.isLeftDown;
+    this.wasRightDown = this.inputManager.isRightDown;
   }
 
   private stepPhysics(dt: number): void {
