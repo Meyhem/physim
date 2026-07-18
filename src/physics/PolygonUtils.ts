@@ -134,6 +134,136 @@ export class PolygonUtils {
   }
 
   /**
+   * Performs polygon union (A + B) using polygon-clipping.
+   * Returns list of resulting polygons.
+   */
+  public static union(polyA: Point2D[], polyB: Point2D[]): Point2D[][] {
+    const coordsA = [[polyA.map(p => [p.x, p.y] as [number, number])]] as any;
+    const coordsB = [[polyB.map(p => [p.x, p.y] as [number, number])]] as any;
+
+    try {
+      const result = polygonClipping.union(coordsA, coordsB);
+      return this.multiPolygonToPointArrays(result);
+    } catch (e) {
+      console.warn("Polygon union failed, returning both input polygons", e);
+      return [polyA, polyB];
+    }
+  }
+
+  /**
+   * Unions a list of polygons together into a set of non-overlapping polygons.
+   */
+  public static unionList(polys: Point2D[][]): Point2D[][] {
+    if (polys.length === 0) return [];
+    if (polys.length === 1) return polys;
+
+    let currentList = [polys[0]];
+
+    for (let i = 1; i < polys.length; i++) {
+      const nextPoly = polys[i];
+      const coordsCurrent = currentList.map(p => [p.map(pt => [pt.x, pt.y] as [number, number])]) as any;
+      const coordsNext = [[nextPoly.map(pt => [pt.x, pt.y] as [number, number])]] as any;
+
+      try {
+        const result = polygonClipping.union(coordsCurrent, coordsNext);
+        currentList = this.multiPolygonToPointArrays(result);
+      } catch (e) {
+        console.warn("Union list iteration failed, appending polygon", e);
+        currentList.push(nextPoly);
+      }
+    }
+    return currentList;
+  }
+
+  /**
+   * Ray-casting algorithm to check if a point is inside a polygon.
+   */
+  public static isPointInPolygon(p: Point2D, vs: Point2D[]): boolean {
+    let inside = false;
+    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+      const xi = vs[i].x, yi = vs[i].y;
+      const xj = vs[j].x, yj = vs[j].y;
+      const intersect = ((yi > p.y) !== (yj > p.y))
+          && (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  /**
+   * Generates a rectangle polygon around a segment of a path with a given thickness.
+   */
+  public static getSegmentRectangle(p1: Point2D, p2: Point2D, thickness: number): Point2D[] {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 0.001) {
+      const r = thickness / 2;
+      return [
+        { x: p1.x - r, y: p1.y - r },
+        { x: p1.x + r, y: p1.y - r },
+        { x: p1.x + r, y: p1.y + r },
+        { x: p1.x - r, y: p1.y + r }
+      ];
+    }
+
+    const ux = dx / len;
+    const uy = dy / len;
+    const nx = -uy;
+    const ny = ux;
+
+    const r = thickness / 2;
+    return [
+      { x: p1.x + nx * r, y: p1.y + ny * r },
+      { x: p2.x + nx * r, y: p2.y + ny * r },
+      { x: p2.x - nx * r, y: p2.y - ny * r },
+      { x: p1.x - nx * r, y: p1.y - ny * r }
+    ];
+  }
+
+  /**
+   * Generates an octagonal approximation of a circle.
+   */
+  public static getCirclePolygon(center: Point2D, radius: number): Point2D[] {
+    const poly: Point2D[] = [];
+    const steps = 8;
+    for (let i = 0; i < steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      poly.push({
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius
+      });
+    }
+    return poly;
+  }
+
+  /**
+   * Converts a polyline path with a given thickness into a unioned polygon structure,
+   * including circles at each joint and end to make the path smooth.
+   */
+  public static pathToPolygons(points: Point2D[], thickness: number): Point2D[][] {
+    if (points.length === 0) return [];
+    if (points.length === 1) {
+      return [this.getCirclePolygon(points[0], thickness / 2)];
+    }
+
+    const polys: Point2D[][] = [];
+
+    // 1. Add circles at all joints
+    for (const pt of points) {
+      polys.push(this.getCirclePolygon(pt, thickness / 2));
+    }
+
+    // 2. Add rectangles for all segments
+    for (let i = 0; i < points.length - 1; i++) {
+      polys.push(this.getSegmentRectangle(points[i], points[i + 1], thickness));
+    }
+
+    // 3. Union everything together
+    return this.unionList(polys);
+  }
+
+  /**
    * Triangulates a simple polygon using Ear Clipping.
    * Returns an array of triangles (each triangle is 3 points).
    */
@@ -245,6 +375,16 @@ export class PolygonUtils {
 
   private static sign(p1: Point2D, p2: Point2D, p3: Point2D): number {
     return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+  }
+
+  public static distToSegment(p: Point2D, a: Point2D, b: Point2D): number {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const l2 = dx * dx + dy * dy;
+    if (l2 === 0) return Math.sqrt((p.x - a.x) ** 2 + (p.y - a.y) ** 2);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.sqrt((p.x - (a.x + t * dx)) ** 2 + (p.y - (a.y + t * dy)) ** 2);
   }
 
   private static multiPolygonToPointArrays(mp: polygonClipping.MultiPolygon): Point2D[][] {

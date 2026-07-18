@@ -16,6 +16,7 @@ export class Furnace extends Building {
     // 1. Crucible walls (open top U-shape)
     const leftWall = Bodies.rectangle(this.x - 45, this.y, 16, 120, {
       friction: 0.2,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
       }
@@ -23,6 +24,7 @@ export class Furnace extends Building {
 
     const rightWall = Bodies.rectangle(this.x + 45, this.y, 16, 120, {
       friction: 0.2,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
       }
@@ -30,6 +32,7 @@ export class Furnace extends Building {
 
     const bottomWall = Bodies.rectangle(this.x, this.y + 55, 106, 16, {
       friction: 0.2,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
       }
@@ -38,15 +41,24 @@ export class Furnace extends Building {
     // 2. Sensor inside the crucible
     this.sensorBody = Bodies.rectangle(this.x, this.y + 10, 70, 70, {
       isSensor: true,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS,
         mask: CollisionCategories.SHARDS
       }
     });
 
+    // Create a tiny sacrificial anchor body as parts[0]
+    const anchor = Bodies.circle(this.x, this.y, 0.1, {
+      collisionFilter: {
+        category: CollisionCategories.BUILDINGS,
+        mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.BUILDINGS | CollisionCategories.TOOLS
+      }
+    });
+
     // Combine into compound body
     const compound = Body.create({
-      parts: [leftWall, rightWall, bottomWall, this.sensorBody],
+      parts: [anchor, leftWall, rightWall, bottomWall, this.sensorBody],
       label: `building:furnace:${this.id}`,
       frictionAir: 0.05,
       collisionFilter: {

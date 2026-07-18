@@ -4,7 +4,7 @@ import { Crusher } from './Crusher.ts';
 import { Furnace } from './Furnace.ts';
 import { CustomShape } from './CustomShape.ts';
 import type { CustomShapeDef } from './CustomShape.ts';
-import { getPointsBounds } from './CustomShape.ts';
+import { getPointsBounds, getPolygonsBounds } from './CustomShape.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { TerrainManager } from '../terrain/TerrainManager.ts';
 
@@ -143,10 +143,17 @@ export class BuildingManager {
     } else {
       const def = customShapeDefs.find(d => d.id === ghost.type);
       if (def) {
-        const pts = def.points;
-        if (pts.length > 0) {
-          const startPt = pts[0];
-          const bounds = getPointsBounds(pts);
+        if (def.polygons && def.polygons.length > 0) {
+          const bounds = getPolygonsBounds(def.polygons);
+          return {
+            minX: ghost.x + bounds.minX,
+            maxX: ghost.x + bounds.maxX,
+            minY: ghost.y + bounds.minY,
+            maxY: ghost.y + bounds.maxY
+          };
+        } else if (def.points && def.points.length > 0) {
+          const startPt = def.points[0];
+          const bounds = getPointsBounds(def.points);
           return {
             minX: ghost.x + (bounds.minX - startPt.x),
             maxX: ghost.x + (bounds.maxX - startPt.x),

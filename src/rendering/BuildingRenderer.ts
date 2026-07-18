@@ -5,15 +5,16 @@ import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
 import { CustomShape } from '../buildings/CustomShape.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
-import { getPointsBounds } from '../buildings/CustomShape.ts';
 
 export class BuildingRenderer {
   private container: Container;
   private buildingGraphics: Map<string, Graphics> = new Map();
   private ghostGraphics: Graphics;
+  private engine: any;
 
-  constructor(container: Container) {
+  constructor(container: Container, engine: any) {
     this.container = container;
+    this.engine = engine;
     this.ghostGraphics = new Graphics();
     this.container.addChild(this.ghostGraphics);
   }
@@ -174,9 +175,70 @@ export class BuildingRenderer {
   }
 
   private updateGhost(buildingManager: BuildingManager, customShapeDefs: CustomShapeDef[]): void {
-    const ghost = buildingManager.getGhost();
     this.ghostGraphics.clear();
 
+    // 1. If in brush tool, draw the brush path ghost
+    if (this.engine.activeTool === 'brush' && this.engine.ghostPath.length > 0) {
+      const brushType = this.engine.activeBrush;
+      const pts = this.engine.ghostPath;
+      const thickness = this.engine.ghostThickness;
+      const pos = this.engine.ghostPosition;
+      const angle = this.engine.ghostAngle;
+
+      this.ghostGraphics.x = pos.x;
+      this.ghostGraphics.y = pos.y;
+      this.ghostGraphics.rotation = angle;
+
+      const strokeColor = brushType === 'solid' ? 0x7f8c8d : 0xf39c12;
+
+      // Draw translucent outline
+      this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
+      }
+      this.ghostGraphics.stroke({ color: strokeColor, width: thickness, alpha: 0.4, cap: 'round', join: 'round' });
+
+      // Draw solid thin core line
+      this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
+      }
+      this.ghostGraphics.stroke({ color: strokeColor, width: 2, alpha: 0.8, cap: 'round', join: 'round' });
+
+      // Draw conveyor directions if conveyor
+      if (brushType === 'conveyor' && pts.length >= 2) {
+        let accumulatedDist = 0;
+        const arrowSpacing = 40;
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p1 = pts[i];
+          const p2 = pts[i + 1];
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          accumulatedDist += len;
+          if (accumulatedDist >= arrowSpacing) {
+            accumulatedDist = 0;
+            const segmentAngle = Math.atan2(dy, dx);
+            const arrowX = p2.x;
+            const arrowY = p2.y;
+            const cos = Math.cos(segmentAngle);
+            const sin = Math.sin(segmentAngle);
+            const pA = { x: arrowX, y: arrowY };
+            const pB = { x: arrowX - 10 * cos - 5 * sin, y: arrowY - 10 * sin + 5 * cos };
+            const pC = { x: arrowX - 10 * cos + 5 * sin, y: arrowY - 10 * sin - 5 * cos };
+            this.ghostGraphics.moveTo(pA.x, pA.y);
+            this.ghostGraphics.lineTo(pB.x, pB.y);
+            this.ghostGraphics.lineTo(pC.x, pC.y);
+            this.ghostGraphics.closePath();
+            this.ghostGraphics.fill({ color: strokeColor, alpha: 0.8 });
+          }
+        }
+      }
+      return;
+    }
+
+    // 2. Otherwise, draw standard building ghost
+    const ghost = buildingManager.getGhost();
     if (!ghost) return;
 
     this.ghostGraphics.x = ghost.x;
@@ -213,26 +275,11 @@ export class BuildingRenderer {
     } else {
       const def = customShapeDefs.find(d => d.id === ghost.type);
       if (def) {
-        const pts = def.points;
+        const pts = def.polygons[0] || [];
         if (pts.length < 2) return;
-
-        const startPt = pts[0];
-        const relativePts = pts.map(p => ({
-          x: p.x - startPt.x,
-          y: p.y - startPt.y
-        }));
-
-        const bounds = getPointsBounds(pts);
-        const relativeMinX = bounds.minX - startPt.x;
-        const relativeMinY = bounds.minY - startPt.y;
-
-        this.ghostGraphics.rect(relativeMinX, relativeMinY, bounds.width, bounds.height);
-        this.ghostGraphics.fill({ color, alpha: 0.1 });
-        this.ghostGraphics.stroke({ color, width: 1.5, alpha: 0.4 });
-
-        this.ghostGraphics.moveTo(relativePts[0].x, relativePts[0].y);
-        for (let i = 1; i < relativePts.length; i++) {
-          this.ghostGraphics.lineTo(relativePts[i].x, relativePts[i].y);
+        this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) {
+          this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
         }
         this.ghostGraphics.stroke({ color, width: def.thickness, alpha: 0.6 });
       }

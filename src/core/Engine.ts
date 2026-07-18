@@ -11,10 +11,11 @@ import { WORLD_WIDTH, CollisionCategories } from './Constants.ts';
 import { Materials, MaterialType } from '../terrain/Materials.ts';
 import { BuildingManager } from '../buildings/BuildingManager.ts';
 import { BuildingRenderer } from '../rendering/BuildingRenderer.ts';
-import { DrawingPopup } from '../ui/DrawingPopup.ts';
 import { CustomShape } from '../buildings/CustomShape.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 import { SaveManager } from '../save/SaveManager.ts';
+import { PolygonUtils } from '../physics/PolygonUtils.ts';
+import type { Point2D } from '../physics/PolygonUtils.ts';
 import { Body, Bodies, Composite } from 'matter-js';
 import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
@@ -35,15 +36,24 @@ export class Engine {
   private buildingRenderer!: BuildingRenderer;
   private placementAngle: number = 0;
 
-  // Custom Shapes Drawing
-  private drawingPopup!: DrawingPopup;
+  // Custom Shapes Drawing & Brushes
   public customShapeDefs: CustomShapeDef[] = [];
   public onCustomShapesUpdated?: (defs: CustomShapeDef[]) => void;
+
+  public activeBrush: 'solid' | 'conveyor' | null = null;
+  public ghostPath: Point2D[] = [];
+  public ghostPosition: Point2D = { x: 0, y: 0 };
+  public ghostAngle: number = 0;
+  public ghostThickness: number = 16;
+  private isDrawingGhost: boolean = false;
+  private draggingGhost: boolean = false;
+  private ghostDragOffset: Point2D = { x: 0, y: 0 };
 
   public activePlacement: { type: 'building' | 'custom_shape'; targetId: string } | null = null;
 
   // Right-click building dragging
   private draggingBuilding: Building | null = null;
+  private draggingShard: Body | null = null;
   private dragOffset: { x: number; y: number } = { x: 0, y: 0 };
 
   // Save System
@@ -52,7 +62,7 @@ export class Engine {
 
   // Tools
   private explosiveTool!: ExplosiveTool;
-  public activeTool: 'grab' | 'explosive' = 'grab';
+  public activeTool: 'grab' | 'explosive' | 'brush' = 'grab';
 
   private lastTime: number = 0;
   private isRunning: boolean = false;
@@ -93,20 +103,13 @@ export class Engine {
     this.particleSystem = new ParticleSystem(this.renderer.particlesContainer);
 
     this.buildingManager = new BuildingManager();
-    this.buildingRenderer = new BuildingRenderer(this.renderer.buildingsContainer);
+    this.buildingRenderer = new BuildingRenderer(this.renderer.buildingsContainer, this);
 
     // 7. Initialize tools
     this.explosiveTool = new ExplosiveTool(this.renderer.toolsContainer);
 
     // Initialize Save System
     this.saveManager = new SaveManager();
-
-    // Initialize Drawing Popup
-    const uiContainer = document.getElementById('ui-container');
-    if (uiContainer) {
-      this.drawingPopup = new DrawingPopup();
-      this.drawingPopup.init(uiContainer);
-    }
 
     // 8. Initialize camera
     const middleX = WORLD_WIDTH / 2;
@@ -118,13 +121,26 @@ export class Engine {
     this.inputManager.onPan((dx, dy) => this.camera.pan(dx, dy));
     this.inputManager.onZoom((x, y, delta) => this.camera.zoomAt(x, y, delta));
 
-    // 10. Right-click building drag callbacks
+    // 10. Right-click building, ghost & shard drag callbacks
     this.inputManager.onRightDown((screenX, screenY) => {
       const worldPos = this.camera.screenToWorld(screenX, screenY);
-      // Hit-test for building bodies
-      const hits = this.physicsWorld.queryPoint(worldPos.x, worldPos.y, 'building:');
-      if (hits.length > 0) {
-        const hitBody = hits[0];
+
+      // Check if we hit the active ghost
+      if (this.activeBrush && this.ghostPath.length >= 2) {
+        if (this.hitTestGhost(worldPos)) {
+          this.draggingGhost = true;
+          this.ghostDragOffset = {
+            x: this.ghostPosition.x - worldPos.x,
+            y: this.ghostPosition.y - worldPos.y
+          };
+          return;
+        }
+      }
+
+      // Hit-test for building & custom shape bodies
+      const hits = this.physicsWorld.queryPoint(worldPos.x, worldPos.y);
+      const hitBody = hits.find(b => b.label.startsWith('building:') || b.label.startsWith('custom:'));
+      if (hitBody) {
         // Find the building that owns this body
         const building = this.buildingManager.getBuildings().find(b => {
           const bodies = b.getBodies();
@@ -139,12 +155,25 @@ export class Engine {
             Body.setStatic(body, true);
           }
         }
+        return;
+      }
+
+      // Hit-test for shards (terrain spheres)
+      const hitShard = hits.find(b => b.label.startsWith('shard:'));
+      if (hitShard) {
+        this.draggingShard = hitShard;
+        this.dragOffset.x = hitShard.position.x - worldPos.x;
+        this.dragOffset.y = hitShard.position.y - worldPos.y;
+        Body.setStatic(hitShard, true);
       }
     });
 
     this.inputManager.onRightDrag((screenX, screenY) => {
-      if (this.draggingBuilding) {
-        const worldPos = this.camera.screenToWorld(screenX, screenY);
+      const worldPos = this.camera.screenToWorld(screenX, screenY);
+      if (this.draggingGhost) {
+        this.ghostPosition.x = worldPos.x + this.ghostDragOffset.x;
+        this.ghostPosition.y = worldPos.y + this.ghostDragOffset.y;
+      } else if (this.draggingBuilding) {
         const body = this.draggingBuilding.getBody();
         if (body) {
           Body.setPosition(body, {
@@ -152,20 +181,31 @@ export class Engine {
             y: worldPos.y + this.dragOffset.y
           });
         }
+      } else if (this.draggingShard) {
+        Body.setPosition(this.draggingShard, {
+          x: worldPos.x + this.dragOffset.x,
+          y: worldPos.y + this.dragOffset.y
+        });
       }
     });
 
     this.inputManager.onRightUp((_screenX, _screenY) => {
-      if (this.draggingBuilding) {
+      if (this.draggingGhost) {
+        this.draggingGhost = false;
+      } else if (this.draggingBuilding) {
         const body = this.draggingBuilding.getBody();
         if (body) {
-          Body.setStatic(body, false);
+          const isCustom = body.label.startsWith('custom:');
+          Body.setStatic(body, isCustom);
           // Update building coordinates to match final body position
           this.draggingBuilding.x = body.position.x;
           this.draggingBuilding.y = body.position.y;
           this.draggingBuilding.angle = body.angle;
         }
         this.draggingBuilding = null;
+      } else if (this.draggingShard) {
+        Body.setStatic(this.draggingShard, false);
+        this.draggingShard = null;
       }
     });
 
@@ -186,13 +226,17 @@ export class Engine {
     this.isRunning = false;
   }
 
-  public setTool(tool: 'grab' | 'explosive'): void {
+  public setTool(tool: 'grab' | 'explosive' | 'brush'): void {
     this.activeTool = tool;
     
+    // Clear other tools' states
+    this.explosiveTool.clearPaint();
+    if (tool !== 'brush') {
+      this.clearBrushDrawing();
+    }
+
     if (tool === 'grab') {
       this.physicsWorld.updateMousePosition(this.camera, this.inputManager);
-    } else {
-      this.explosiveTool.clearPaint();
     }
   }
 
@@ -209,29 +253,204 @@ export class Engine {
     this.explosiveTool.clearPaint();
   }
 
-  public openDrawingPopup(editId?: string): void {
-    const editDef = editId ? this.customShapeDefs.find(d => d.id === editId) : undefined;
-    this.drawingPopup.open(
-      (def) => this.saveCustomShape(def),
-      () => {},
-      editDef
-    );
+  public hitTestGhost(worldPos: Point2D): boolean {
+    if (this.ghostPath.length < 2) return false;
+    
+    const dx = worldPos.x - this.ghostPosition.x;
+    const dy = worldPos.y - this.ghostPosition.y;
+    const cos = Math.cos(-this.ghostAngle);
+    const sin = Math.sin(-this.ghostAngle);
+    const localPos = {
+      x: dx * cos - dy * sin,
+      y: dx * sin + dy * cos
+    };
+
+    let minDist = Infinity;
+    for (let i = 0; i < this.ghostPath.length - 1; i++) {
+      const d = PolygonUtils.distToSegment(localPos, this.ghostPath[i], this.ghostPath[i+1]);
+      if (d < minDist) minDist = d;
+    }
+
+    return minDist < (this.ghostThickness / 2 + 15);
   }
 
-  public saveCustomShape(def: CustomShapeDef): void {
-    const idx = this.customShapeDefs.findIndex(d => d.id === def.id);
-    if (idx !== -1) {
-      this.customShapeDefs[idx] = def;
-    } else {
-      this.customShapeDefs.push(def);
-    }
-    if (this.onCustomShapesUpdated) {
-      this.onCustomShapesUpdated(this.customShapeDefs);
-    }
+  public clearBrushDrawing(): void {
+    this.ghostPath = [];
+    this.isDrawingGhost = false;
+    this.draggingGhost = false;
   }
 
-  public deleteCustomShape(id: string): void {
-    this.customShapeDefs = this.customShapeDefs.filter(d => d.id !== id);
+  public confirmBrushDrawing(): void {
+    if (this.ghostPath.length < 2) {
+      alert("Please draw a line of at least 2 points first!");
+      return;
+    }
+
+    // 1. Transform ghost path points to world coordinates
+    const cos = Math.cos(this.ghostAngle);
+    const sin = Math.sin(this.ghostAngle);
+    const worldPoints = this.ghostPath.map(p => ({
+      x: this.ghostPosition.x + p.x * cos - p.y * sin,
+      y: this.ghostPosition.y + p.x * sin + p.y * cos
+    }));
+
+    // 2. Generate segment rectangles and joint circles in world coordinates
+    const worldPolys = PolygonUtils.pathToPolygons(worldPoints, this.ghostThickness);
+    if (worldPolys.length === 0) {
+      alert("Could not generate shapes from path.");
+      return;
+    }
+
+    // 3. Clip against terrain blocks
+    let clippedPolys = worldPolys;
+    const terrainBlocks = this.terrainManager.getBlocks();
+    for (const block of terrainBlocks) {
+      let tempClipped: Point2D[][] = [];
+      for (const poly of clippedPolys) {
+        const diff = PolygonUtils.difference(poly, block.points);
+        tempClipped.push(...diff);
+      }
+      clippedPolys = tempClipped;
+    }
+
+    clippedPolys = clippedPolys.filter(poly => PolygonUtils.getArea(poly) > 10);
+
+    if (clippedPolys.length === 0) {
+      alert("Placement cancelled: The drawn shape is completely inside or clipped by the terrain.");
+      return;
+    }
+
+    // 4. Generate clipped conveyor segments if conveyor brush
+    let conveyorSegments: { poly: Point2D[]; dir: Point2D }[] = [];
+    if (this.activeBrush === 'conveyor') {
+      for (let i = 0; i < worldPoints.length - 1; i++) {
+        const p1 = worldPoints[i];
+        const p2 = worldPoints[i+1];
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const len = Math.sqrt(dx*dx + dy*dy);
+        if (len > 0.001) {
+          const dir = { x: dx / len, y: dy / len };
+          const segRect = PolygonUtils.getSegmentRectangle(p1, p2, this.ghostThickness);
+          
+          let clippedSegs = [segRect];
+          for (const block of terrainBlocks) {
+            clippedSegs = clippedSegs.flatMap(poly => PolygonUtils.difference(poly, block.points));
+          }
+          clippedSegs = clippedSegs.filter(poly => PolygonUtils.getArea(poly) > 5);
+
+          for (const poly of clippedSegs) {
+            conveyorSegments.push({ poly, dir });
+          }
+        }
+      }
+    }
+
+    // 5. Merge with existing custom shapes of the same brush type that overlap
+    let finalWorldPolys = [...clippedPolys];
+    let finalWorldConveyorSegments = [...conveyorSegments];
+    const brushType = this.activeBrush!;
+
+    const buildingsToMerge: CustomShape[] = [];
+
+    for (const b of this.buildingManager.getBuildings()) {
+      if (b instanceof CustomShape && b.def.brushType === brushType) {
+        const body = b.getBody();
+        if (!body) continue;
+
+        const eCos = Math.cos(body.angle);
+        const eSin = Math.sin(body.angle);
+        const existingWorldPolys = b.def.polygons.map(poly => poly.map(p => ({
+          x: body.position.x + p.x * eCos - p.y * eSin,
+          y: body.position.y + p.x * eSin + p.y * eCos
+        })));
+
+        let intersects = false;
+        for (const pA of finalWorldPolys) {
+          for (const pB of existingWorldPolys) {
+            const overlap = PolygonUtils.intersection(pA, pB);
+            if (overlap.length > 0 && overlap.some(o => PolygonUtils.getArea(o) > 5)) {
+              intersects = true;
+              break;
+            }
+          }
+          if (intersects) break;
+        }
+
+        if (intersects) {
+          buildingsToMerge.push(b);
+          finalWorldPolys.push(...existingWorldPolys);
+
+          if (brushType === 'conveyor' && b.def.conveyorSegments) {
+            const existingWorldSegments = b.def.conveyorSegments.map(seg => ({
+              poly: seg.poly.map(p => ({
+                x: body.position.x + p.x * eCos - p.y * eSin,
+                y: body.position.y + p.x * eSin + p.y * eCos
+              })),
+              dir: {
+                x: seg.dir.x * eCos - seg.dir.y * eSin,
+                y: seg.dir.x * eSin + seg.dir.y * eCos
+              }
+            }));
+            finalWorldConveyorSegments.push(...existingWorldSegments);
+          }
+        }
+      }
+    }
+
+    finalWorldPolys = PolygonUtils.unionList(finalWorldPolys);
+
+    for (const oldBuilding of buildingsToMerge) {
+      this.buildingManager.removeBuilding(oldBuilding.id, this.physicsWorld.world);
+    }
+
+    // 6. Compute new centroid of merged world polygons
+    const allVertices: Point2D[] = finalWorldPolys.flat();
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const v of allVertices) {
+      if (v.x < minX) minX = v.x;
+      if (v.x > maxX) maxX = v.x;
+      if (v.y < minY) minY = v.y;
+      if (v.y > maxY) maxY = v.y;
+    }
+    const finalCentroid = {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2
+    };
+
+    const relativePolys = finalWorldPolys.map(poly => poly.map(p => ({
+      x: p.x - finalCentroid.x,
+      y: p.y - finalCentroid.y
+    })));
+
+    const relativeConveyorSegments = finalWorldConveyorSegments.map(seg => ({
+      poly: seg.poly.map(p => ({
+        x: p.x - finalCentroid.x,
+        y: p.y - finalCentroid.y
+      })),
+      dir: seg.dir
+    }));
+
+    const defId = `custom_${brushType}_${Date.now()}`;
+    const defName = `${brushType === 'solid' ? 'Solid Wall' : 'Conveyor'} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const def: CustomShapeDef = {
+      id: defId,
+      name: defName,
+      polygons: relativePolys,
+      brushType,
+      thickness: this.ghostThickness,
+      conveyorSegments: relativeConveyorSegments
+    };
+
+    this.customShapeDefs.push(def);
+
+    const buildingId = `${defId}_${Date.now()}`;
+    const customShape = new CustomShape(buildingId, def, finalCentroid.x, finalCentroid.y);
+    customShape.initPhysics(this.physicsWorld.world);
+    this.buildingManager.getBuildings().push(customShape);
+
+    this.ghostPath = [];
+
     if (this.onCustomShapesUpdated) {
       this.onCustomShapesUpdated(this.customShapeDefs);
     }
@@ -305,12 +524,26 @@ export class Engine {
       this.camera.pan(dx * this.camera.zoom, dy * this.camera.zoom);
     }
 
-    // Keyboard shortcuts
-    if (this.inputManager.isKeyPressed('e') || this.inputManager.isKeyPressed('enter')) {
+    // Keyboard shortcuts - only detonate with E if not placing, dragging, or using the brush tool
+    const isRotatingToolActive = this.activePlacement || this.draggingBuilding || (this.activeTool === 'brush');
+    if (this.inputManager.isKeyPressed('enter') || (!isRotatingToolActive && this.inputManager.isKeyPressed('e'))) {
       this.detonateExplosives();
     }
     if (this.inputManager.isKeyPressed('c')) {
       this.clearPaintedExplosives();
+    }
+
+    // Rotate grabbed building if right-click dragging
+    if (this.draggingBuilding) {
+      const body = this.draggingBuilding.getBody();
+      if (body) {
+        if (this.inputManager.isKeyPressed('q')) {
+          Body.setAngle(body, body.angle - dt * 2.5);
+        }
+        if (this.inputManager.isKeyPressed('e')) {
+          Body.setAngle(body, body.angle + dt * 2.5);
+        }
+      }
     }
 
     // 2. Camera updates
@@ -337,6 +570,49 @@ export class Engine {
       if (this.inputManager.isLeftDown) {
         const worldPos = this.camera.screenToWorld(this.inputManager.mouseX, this.inputManager.mouseY);
         this.explosiveTool.paint(worldPos.x, worldPos.y);
+      }
+    } else if (this.activeTool === 'brush' && this.activeBrush) {
+      if (this.inputManager.isKeyPressed('q')) {
+        this.ghostAngle -= dt * 2.5;
+      }
+      if (this.inputManager.isKeyPressed('e')) {
+        this.ghostAngle += dt * 2.5;
+      }
+
+      const worldPos = this.camera.screenToWorld(this.inputManager.mouseX, this.inputManager.mouseY);
+
+      if (!this.draggingGhost) {
+        if (this.inputManager.isLeftDown) {
+          if (!this.isDrawingGhost) {
+            this.isDrawingGhost = true;
+            this.ghostPath = [worldPos];
+            this.ghostPosition = { x: 0, y: 0 };
+            this.ghostAngle = 0;
+          } else {
+            const lastPt = this.ghostPath[this.ghostPath.length - 1];
+            const dx = worldPos.x - lastPt.x;
+            const dy = worldPos.y - lastPt.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 8) {
+              this.ghostPath.push(worldPos);
+            }
+          }
+        } else {
+          if (this.isDrawingGhost) {
+            this.isDrawingGhost = false;
+            if (this.ghostPath.length >= 2) {
+              const centroid = PolygonUtils.getCentroid(this.ghostPath);
+              this.ghostPath = this.ghostPath.map(p => ({
+                x: p.x - centroid.x,
+                y: p.y - centroid.y
+              }));
+              this.ghostPosition = centroid;
+              this.ghostAngle = 0;
+            } else {
+              this.ghostPath = [];
+            }
+          }
+        }
       }
     } else if (this.activeTool === 'grab') {
       this.physicsWorld.updateMousePosition(this.camera, this.inputManager);
@@ -443,7 +719,41 @@ export class Engine {
 
       // 4. Load custom shape definitions
       if (state.customShapeDefs) {
-        this.customShapeDefs = state.customShapeDefs;
+        this.customShapeDefs = state.customShapeDefs.map((def: any) => {
+          if (!def.polygons && def.points) {
+            const thickness = def.thickness || 16;
+            const worldPolys = PolygonUtils.pathToPolygons(def.points, thickness);
+            const startPt = def.points[0] || { x: 0, y: 0 };
+            const relativePolys = worldPolys.map(poly => poly.map(p => ({
+              x: p.x - startPt.x,
+              y: p.y - startPt.y
+            })));
+            
+            let conveyorSegments;
+            if (def.brushType === 'conveyor') {
+              conveyorSegments = [];
+              for (let i = 0; i < def.points.length - 1; i++) {
+                const p1 = def.points[i];
+                const p2 = def.points[i + 1];
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                if (len > 0.001) {
+                  const dir = { x: dx / len, y: dy / len };
+                  const segRect = PolygonUtils.getSegmentRectangle(p1, p2, thickness);
+                  const relPoly = segRect.map(p => ({ x: p.x - startPt.x, y: p.y - startPt.y }));
+                  conveyorSegments.push({ poly: relPoly, dir });
+                }
+              }
+            }
+            return {
+              ...def,
+              polygons: relativePolys,
+              conveyorSegments
+            };
+          }
+          return def;
+        });
         if (this.onCustomShapesUpdated) {
           this.onCustomShapesUpdated(this.customShapeDefs);
         }

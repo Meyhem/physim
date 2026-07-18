@@ -17,6 +17,7 @@ export class Crusher extends Building {
     const leftSlant = Bodies.rectangle(this.x - 60, this.y - 40, 130, 16, {
       angle: Math.PI / 6, // 30 degrees slanted
       friction: 0.1,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
       }
@@ -25,6 +26,7 @@ export class Crusher extends Building {
     const rightSlant = Bodies.rectangle(this.x + 60, this.y - 40, 130, 16, {
       angle: -Math.PI / 6,
       friction: 0.1,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
       }
@@ -33,6 +35,7 @@ export class Crusher extends Building {
     // 2. Chute walls guiding the output
     const leftChute = Bodies.rectangle(this.x - 25, this.y + 40, 16, 80, {
       friction: 0.1,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
       }
@@ -40,6 +43,7 @@ export class Crusher extends Building {
 
     const rightChute = Bodies.rectangle(this.x + 25, this.y + 40, 16, 80, {
       friction: 0.1,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
       }
@@ -48,15 +52,24 @@ export class Crusher extends Building {
     // 3. Central sensor catching incoming shards
     this.sensorBody = Bodies.rectangle(this.x, this.y, 40, 20, {
       isSensor: true,
+      density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS,
         mask: CollisionCategories.SHARDS
       }
     });
 
+    // Create a tiny sacrificial anchor body as parts[0]
+    const anchor = Bodies.circle(this.x, this.y, 0.1, {
+      collisionFilter: {
+        category: CollisionCategories.BUILDINGS,
+        mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.BUILDINGS | CollisionCategories.TOOLS
+      }
+    });
+
     // Combine segments into a compound body
     const compound = Body.create({
-      parts: [leftSlant, rightSlant, leftChute, rightChute, this.sensorBody],
+      parts: [anchor, leftSlant, rightSlant, leftChute, rightChute, this.sensorBody],
       label: `building:crusher:${this.id}`,
       frictionAir: 0.05,
       collisionFilter: {

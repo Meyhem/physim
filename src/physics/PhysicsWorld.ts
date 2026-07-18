@@ -1,4 +1,4 @@
-import { Engine, World, Composite, MouseConstraint, Mouse, Body, Bodies, Query } from 'matter-js';
+import { Engine, World, Composite, MouseConstraint, Mouse, Body, Bodies, Query, Events } from 'matter-js';
 import { CollisionCategories } from '../core/Constants.ts';
 import { PolygonUtils } from './PolygonUtils.ts';
 import type { Point2D } from './PolygonUtils.ts';
@@ -12,8 +12,9 @@ export class PhysicsWorld {
   private mouseObj!: Mouse;
 
   // Track bodies by ID
-  private terrainBodies: Map<string, Body> = new Map();
+  private terrainBodies: Map<string, Body[]> = new Map();
   private shardBodies: Set<Body> = new Set();
+  private terrainCollisionCounts: Map<number, number> = new Map(); // parentBody.id -> count
 
   constructor() {
     this.engine = Engine.create({
@@ -22,6 +23,24 @@ export class PhysicsWorld {
       velocityIterations: 8        // Higher = less overshoot on impulses (default: 4)
     });
     this.world = this.engine.world;
+
+    // Register collision events for building-terrain drag damping
+    Events.on(this.engine, 'collisionStart', (event) => {
+      for (const pair of event.pairs) {
+        this.handleBuildingTerrainCollision(pair.bodyA, pair.bodyB, 1);
+      }
+    });
+
+    Events.on(this.engine, 'collisionEnd', (event) => {
+      for (const pair of event.pairs) {
+        this.handleBuildingTerrainCollision(pair.bodyA, pair.bodyB, -1);
+      }
+    });
+
+    // Lock custom shapes and buildings to static once they settle on the terrain
+    Events.on(this.engine, 'afterUpdate', () => {
+      this.settleBodies();
+    });
   }
 
   public init(canvasElement: HTMLCanvasElement): void {
@@ -81,34 +100,61 @@ export class PhysicsWorld {
   /**
    * Creates a static terrain block body.
    */
-  public createTerrainBody(id: string, points: Point2D[], density: number): Body {
-    const centroid = PolygonUtils.getCentroid(points);
-    const centeredPoints = points.map(p => ({ x: p.x - centroid.x, y: p.y - centroid.y }));
+  public createTerrainBody(id: string, points: Point2D[], density: number): Body[] {
+    if (points.length < 3) {
+      const dummy = Bodies.circle(0, 0, 10, { isStatic: true });
+      dummy.label = `terrain:${id}`;
+      Composite.add(this.world, dummy);
+      this.terrainBodies.set(id, [dummy]);
+      return [dummy];
+    }
 
-    const body = Bodies.fromVertices(centroid.x, centroid.y, [centeredPoints], {
-      isStatic: true,
-      friction: 0.3,
-      density: density,
-      collisionFilter: {
-        category: CollisionCategories.TERRAIN
+    const triangles = PolygonUtils.triangulate(points);
+    const bodies: Body[] = [];
+
+    // Create an independent static body for each triangle
+    for (const tri of triangles) {
+      if (tri.length < 3) continue;
+
+      const centroid = PolygonUtils.getCentroid(tri);
+      const centeredPoints = tri.map(p => ({ x: p.x - centroid.x, y: p.y - centroid.y }));
+
+      const body = Bodies.fromVertices(centroid.x, centroid.y, [centeredPoints], {
+        isStatic: true,
+        friction: 0.9,
+        density: density,
+        collisionFilter: {
+          category: CollisionCategories.TERRAIN
+        }
+      });
+      if (body) {
+        body.label = `terrain:${id}`;
+        Composite.add(this.world, body);
+        bodies.push(body);
       }
-    });
+    }
 
-    // Custom label to retrieve block properties later
-    body.label = `terrain:${id}`;
+    if (bodies.length === 0) {
+      const dummy = Bodies.circle(0, 0, 10, { isStatic: true });
+      dummy.label = `terrain:${id}`;
+      Composite.add(this.world, dummy);
+      this.terrainBodies.set(id, [dummy]);
+      return [dummy];
+    }
 
-    Composite.add(this.world, body);
-    this.terrainBodies.set(id, body);
-    return body;
+    this.terrainBodies.set(id, bodies);
+    return bodies;
   }
 
   /**
    * Removes a static terrain body.
    */
   public removeTerrainBody(id: string): void {
-    const body = this.terrainBodies.get(id);
-    if (body) {
-      Composite.remove(this.world, body);
+    const bodies = this.terrainBodies.get(id);
+    if (bodies) {
+      for (const body of bodies) {
+        Composite.remove(this.world, body);
+      }
       this.terrainBodies.delete(id);
     }
   }
@@ -128,7 +174,7 @@ export class PhysicsWorld {
     const body = Bodies.circle(centroid.x, centroid.y, radius, {
       friction: 0.2,
       restitution: 0.1,
-      density: density,
+      density: density * 10,
       collisionFilter: {
         category: CollisionCategories.SHARDS,
         mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.TOOLS | CollisionCategories.BUILDINGS
@@ -149,7 +195,7 @@ export class PhysicsWorld {
     const body = Bodies.circle(x, y, Math.max(3, radius), {
       friction: 0.2,
       restitution: 0.1,
-      density: density,
+      density: density * 10,
       collisionFilter: {
         category: CollisionCategories.SHARDS,
         mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.TOOLS | CollisionCategories.BUILDINGS
@@ -185,10 +231,67 @@ export class PhysicsWorld {
     return hits;
   }
 
+  private handleBuildingTerrainCollision(bodyA: Body, bodyB: Body, change: number): void {
+    const labelA = bodyA.label || '';
+    const labelB = bodyB.label || '';
+
+    const isA_Building = labelA.startsWith('building:') || labelA.startsWith('custom:');
+    const isB_Terrain = labelB.startsWith('terrain:');
+
+    const isB_Building = labelB.startsWith('building:') || labelB.startsWith('custom:');
+    const isA_Terrain = labelA.startsWith('terrain:');
+
+    if (isA_Building && isB_Terrain) {
+      this.updateBuildingCollisionCount(bodyA, change);
+    } else if (isB_Building && isA_Terrain) {
+      this.updateBuildingCollisionCount(bodyB, change);
+    }
+  }
+
+  private updateBuildingCollisionCount(body: Body, change: number): void {
+    const parent = body.parent || body;
+    const currentCount = this.terrainCollisionCounts.get(parent.id) || 0;
+    const newCount = Math.max(0, currentCount + change);
+    
+    this.terrainCollisionCounts.set(parent.id, newCount);
+    
+    if (newCount > 0) {
+      parent.frictionAir = 0.45; // Increased air friction (drag) on collision with terrain
+    } else {
+      parent.frictionAir = 0.05; // Standard air friction (drag)
+    }
+  }
+
+  private settleBodies(): void {
+    const bodies = Composite.allBodies(this.world);
+    for (const body of bodies) {
+      if (body.isStatic) continue;
+      const label = body.label || '';
+      if (label.startsWith('building:') || label.startsWith('custom:')) {
+        const parent = body.parent || body;
+        if (parent.isStatic) continue;
+
+        // Check if it is touching the terrain
+        const terrainCollisions = this.terrainCollisionCounts.get(parent.id) || 0;
+        if (terrainCollisions > 0) {
+          const speed = Math.sqrt(parent.velocity.x * parent.velocity.x + parent.velocity.y * parent.velocity.y);
+          const angularSpeed = Math.abs(parent.angularVelocity);
+          
+          // If it has virtually come to rest, toggle it to static to lock it in place
+          if (speed < 0.2 && angularSpeed < 0.05) {
+            Body.setStatic(parent, true);
+          }
+        }
+      }
+    }
+  }
+
   public clearAll(): void {
     // Clear all terrain and shard bodies
-    for (const body of this.terrainBodies.values()) {
-      Composite.remove(this.world, body);
+    for (const bodies of this.terrainBodies.values()) {
+      for (const body of bodies) {
+        Composite.remove(this.world, body);
+      }
     }
     this.terrainBodies.clear();
 
