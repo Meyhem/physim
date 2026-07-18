@@ -42,7 +42,7 @@ export class Engine {
   private customShapes: CustomShape[] = [];
   public onCustomShapesUpdated?: (defs: CustomShapeDef[]) => void;
 
-  public placementCustomShapeDef: CustomShapeDef | null = null;
+  public activePlacement: { type: 'building' | 'custom_shape'; targetId: string } | null = null;
 
   // Save System
   public saveManager!: SaveManager;
@@ -188,47 +188,48 @@ export class Engine {
     }
   }
 
-  public startCustomShapePlacement(id: string): void {
-    const def = this.customShapeDefs.find(d => d.id === id);
-    if (def) {
-      this.placementCustomShapeDef = def;
-      this.placementAngle = 0;
-      this.inputManager.isLeftDown = true;
-    }
-  }
-
-  public confirmCustomShapePlacement(): void {
-    if (!this.placementCustomShapeDef) return;
-    
-    const worldPos = this.camera.screenToWorld(this.inputManager.mouseX, this.inputManager.mouseY);
-    const shape = new CustomShape(this.placementCustomShapeDef);
-    const body = shape.spawn(worldPos.x, worldPos.y, this.physicsWorld.world);
-    if (body) {
-      Body.setAngle(body, this.placementAngle);
-    }
-    this.customShapes.push(shape);
-    
-    this.placementCustomShapeDef = null;
-    this.buildingRenderer.clearGhost();
-  }
-
-  public cancelCustomShapePlacement(): void {
-    this.placementCustomShapeDef = null;
-    this.buildingRenderer.clearGhost();
-  }
-
-  public startBuildingPlacement(type: string): void {
+  public startPlacement(type: 'building' | 'custom_shape', targetId: string): void {
     this.inputManager.isLeftDown = true;
-    this.buildingManager.startPlacement(type);
+    this.activePlacement = { type, targetId };
     this.placementAngle = 0;
+    
+    if (type === 'building') {
+      this.buildingManager.startPlacement(targetId);
+    }
   }
 
-  public confirmBuildingPlacement(): void {
-    this.buildingManager.confirmPlacement(this.physicsWorld);
+  public confirmPlacement(): void {
+    if (!this.activePlacement) return;
+
+    if (this.activePlacement.type === 'building') {
+      this.buildingManager.confirmPlacement(this.physicsWorld);
+    } else {
+      const def = this.customShapeDefs.find(d => d.id === this.activePlacement!.targetId);
+      if (def) {
+        const worldPos = this.camera.screenToWorld(this.inputManager.mouseX, this.inputManager.mouseY);
+        const shape = new CustomShape(def);
+        const body = shape.spawn(worldPos.x, worldPos.y, this.physicsWorld.world);
+        if (body) {
+          Body.setAngle(body, this.placementAngle);
+        }
+        this.customShapes.push(shape);
+      }
+      this.buildingRenderer.clearGhost();
+    }
+
+    this.activePlacement = null;
   }
 
-  public cancelBuildingPlacement(): void {
-    this.buildingManager.cancelPlacement();
+  public cancelPlacement(): void {
+    if (!this.activePlacement) return;
+
+    if (this.activePlacement.type === 'building') {
+      this.buildingManager.cancelPlacement();
+    } else {
+      this.buildingRenderer.clearGhost();
+    }
+
+    this.activePlacement = null;
   }
 
   public togglePause(): void {
@@ -288,9 +289,8 @@ export class Engine {
     this.camera.update(dt);
 
     // 3. Tool specific updates
-    const ghost = this.buildingManager.getGhost();
-    if (ghost) {
-      // Rotate building placement with Q/E
+    if (this.activePlacement) {
+      // Rotate placement with Q/E
       if (this.inputManager.isKeyPressed('q')) {
         this.placementAngle -= dt * 2.5;
       }
@@ -299,25 +299,19 @@ export class Engine {
       }
 
       const worldPos = this.camera.screenToWorld(this.inputManager.mouseX, this.inputManager.mouseY);
-      this.buildingManager.updateGhost(worldPos.x, worldPos.y, this.placementAngle, this.terrainManager);
+      
+      if (this.activePlacement.type === 'building') {
+        this.buildingManager.updateGhost(worldPos.x, worldPos.y, this.placementAngle, this.terrainManager);
+      } else {
+        const def = this.customShapeDefs.find(d => d.id === this.activePlacement!.targetId);
+        if (def) {
+          this.buildingRenderer.updateCustomShapeGhost(def, worldPos.x, worldPos.y, this.placementAngle);
+        }
+      }
 
-      // Release to place!
+      // Confirm placement on release
       if (!this.inputManager.isLeftDown) {
-        this.confirmBuildingPlacement();
-      }
-    } else if (this.placementCustomShapeDef) {
-      if (this.inputManager.isKeyPressed('q')) {
-        this.placementAngle -= dt * 2.5;
-      }
-      if (this.inputManager.isKeyPressed('e')) {
-        this.placementAngle += dt * 2.5;
-      }
-
-      const worldPos = this.camera.screenToWorld(this.inputManager.mouseX, this.inputManager.mouseY);
-      this.buildingRenderer.updateCustomShapeGhost(this.placementCustomShapeDef, worldPos.x, worldPos.y, this.placementAngle);
-
-      if (!this.inputManager.isLeftDown) {
-        this.confirmCustomShapePlacement();
+        this.confirmPlacement();
       }
     } else if (this.activeTool === 'explosive') {
       if (this.inputManager.isLeftDown) {

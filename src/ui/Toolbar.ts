@@ -25,21 +25,23 @@ export class Toolbar {
       </div>
 
       <div class="toolbar-section separator">
-        <h3 class="toolbar-title">BUILDINGS (Drag)</h3>
+        <h3 class="toolbar-title">BUILDINGS & TOOLS</h3>
+        
+        <!-- Predefined Buildings -->
         <button id="build-crusher" class="toolbar-btn" title="Drag to place a Crusher. Q/E to rotate.">
           <span class="icon">⚙️</span> Crusher
         </button>
         <button id="build-furnace" class="toolbar-btn" title="Drag to place a Furnace. Q/E to rotate.">
           <span class="icon">🔥</span> Furnace
         </button>
-      </div>
 
-      <div class="toolbar-section separator">
-        <h3 class="toolbar-title">CUSTOM TOOLS</h3>
+        <div class="divider-line"></div>
+
+        <!-- Custom Drawn Tools -->
         <button id="btn-draw-new" class="toolbar-btn secondary-btn" title="Draw a custom tool shape">
-          <span class="icon">➕</span> Draw New Tool
+          <span class="icon">➕</span> Draw Custom Tool
         </button>
-        <div id="custom-shapes-list" class="custom-shapes-list-container"></div>
+        <div id="custom-shapes-list" class="custom-shapes-list-container" style="margin-top: 8px;"></div>
       </div>
 
       <div class="toolbar-section separator">
@@ -88,13 +90,13 @@ export class Toolbar {
     buildCrusherBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
       this.setActiveTool('grab'); // Reset to grab tool for safety
-      this.engine.startBuildingPlacement('crusher');
+      this.engine.startPlacement('building', 'crusher');
     });
 
     buildFurnaceBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
       this.setActiveTool('grab');
-      this.engine.startBuildingPlacement('furnace');
+      this.engine.startPlacement('building', 'furnace');
     });
 
     detonateBtn.addEventListener('click', () => {
@@ -146,7 +148,7 @@ export class Toolbar {
       infoBtn.addEventListener('mousedown', (e) => {
         e.preventDefault();
         this.setActiveTool('grab'); // Reset tool state to grab
-        this.engine.startCustomShapePlacement(id);
+        this.engine.startPlacement('custom_shape', id);
       });
 
       editBtn.addEventListener('click', (e) => {
