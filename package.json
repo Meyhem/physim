@@ -1,0 +1,21 @@
+{
+  "name": "physim",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/matter-js": "^0.20.2",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1"
+  },
+  "dependencies": {
+    "matter-js": "^0.20.0",
+    "pixi.js": "^8.19.0",
+    "polygon-clipping": "^0.15.7"
+  }
+}

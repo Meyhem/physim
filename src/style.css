@@ -1,0 +1,622 @@
+:root {
+  --font-family: 'Inter', sans-serif;
+
+  /* Color Palette - Industrial Dark Theme */
+  --bg-color: #121218;
+  --panel-bg: rgba(22, 22, 30, 0.85);
+  --panel-border: rgba(45, 45, 60, 0.6);
+  --panel-glow: rgba(218, 165, 32, 0.1);
+  
+  --text-main: #e2e2e9;
+  --text-muted: #8b8b9f;
+  --text-dark: #121216;
+
+  --accent-color: #f39c12; /* Amber/Orange */
+  --accent-glow: rgba(243, 156, 18, 0.35);
+  --accent-hover: #f1c40f;
+  
+  --danger-color: #e74c3c;
+  --danger-hover: #c0392b;
+
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body, html {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg-color);
+  font-family: var(--font-family);
+  color: var(--text-main);
+  user-select: none;
+}
+
+#game-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  display: block;
+}
+
+#ui-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none; /* Let clicks pass through to canvas by default */
+}
+
+/* UI Panel General Class (to be used later) */
+.ui-panel {
+  pointer-events: auto; /* Enable interaction on UI panels */
+  background: var(--panel-bg);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  color: var(--text-main);
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.ui-panel:hover {
+  border-color: rgba(243, 156, 18, 0.4);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 15px var(--panel-glow);
+}
+
+/* Scrollbars for custom lists */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-color);
+}
+
+/* Sidebar Toolbar Layout */
+.toolbar-panel {
+  position: absolute;
+  left: 20px;
+  top: 20px;
+  bottom: 20px;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 16px;
+  gap: 24px;
+}
+
+.toolbar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toolbar-section.separator {
+  border-top: 1px solid var(--panel-border);
+  padding-top: 20px;
+}
+
+.toolbar-section.footer {
+  margin-top: auto;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 16px;
+}
+
+.toolbar-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-main);
+  font-family: var(--font-family);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-fast);
+}
+
+.toolbar-btn .icon {
+  font-size: 16px;
+}
+
+.toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.toolbar-btn.active {
+  background: var(--accent-color);
+  border-color: var(--accent-hover);
+  color: var(--text-dark);
+  box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.toolbar-btn.active:hover {
+  background: var(--accent-hover);
+  transform: none;
+}
+
+.detonate-btn {
+  background: rgba(231, 76, 60, 0.1);
+  border-color: rgba(231, 76, 60, 0.3);
+  color: #ff6b6b;
+}
+
+.detonate-btn:hover {
+  background: var(--danger-color);
+  border-color: var(--danger-hover);
+  color: white;
+  box-shadow: 0 0 15px rgba(231, 76, 60, 0.4);
+}
+
+.secondary-btn {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+}
+
+.secondary-btn:hover {
+  color: var(--text-main);
+  border-color: var(--panel-border);
+}
+
+.controls-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.controls-hint p {
+  display: flex;
+  justify-content: space-between;
+}
+
+.controls-hint strong {
+  color: var(--text-main);
+}
+
+/* Drawing Popup Modal Backdrop */
+.modal-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(8, 8, 12, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  pointer-events: auto;
+}
+
+.drawing-popup-panel {
+  width: 580px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.drawing-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.drawing-popup-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--accent-color);
+}
+
+.close-btn {
+  font-size: 24px;
+  font-weight: 300;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.close-btn:hover {
+  color: white;
+}
+
+.drawing-config-row {
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+}
+
+.config-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.config-group label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.brush-selector {
+  display: flex;
+  gap: 8px;
+}
+
+.selector-btn {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--panel-border);
+  color: var(--text-muted);
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.selector-btn:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-main);
+}
+
+.selector-btn.active {
+  background: rgba(243, 156, 18, 0.1);
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+/* Range input styling */
+input[type=range] {
+  -webkit-appearance: none;
+  background: transparent;
+  width: 100%;
+}
+
+input[type=range]:focus {
+  outline: none;
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: #252535;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+input[type=range]::-webkit-slider-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  cursor: pointer;
+  -webkit-appearance: none;
+  margin-top: -6px;
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* Canvas styling */
+.canvas-container {
+  background: #161620;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+}
+
+#drawing-canvas {
+  display: block;
+  cursor: crosshair;
+}
+
+.drawing-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* Custom Shape List in Sidebar */
+.custom-shapes-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.custom-shape-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  transition: all var(--transition-fast);
+}
+
+.custom-shape-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.item-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  flex: 1;
+  overflow: hidden;
+}
+
+.item-icon {
+  font-size: 14px;
+}
+
+.item-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.custom-shape-item:hover .item-name {
+  color: var(--accent-color);
+}
+
+.item-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.action-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.action-btn:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.delete-btn:hover {
+  color: var(--danger-color);
+  background: rgba(231, 76, 60, 0.15);
+}
+
+.empty-list-msg {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 10px 0;
+  font-style: italic;
+}
+
+/* Speed Controls Panel HUD (Top-Right) */
+.speed-controls-panel {
+  position: absolute;
+  right: 20px;
+  top: 20px;
+  display: flex;
+  padding: 8px;
+  gap: 6px;
+  border-radius: 8px;
+}
+
+.speed-btn {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--panel-border);
+  color: var(--text-muted);
+  padding: 6px 12px;
+  font-family: var(--font-family);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.speed-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.speed-btn.active {
+  background: var(--accent-color);
+  border-color: var(--accent-hover);
+  color: var(--text-dark);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Escape Menu Styling */
+.esc-menu-panel {
+  width: 640px;
+  height: 400px;
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+.esc-menu-left {
+  width: 240px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-right: 1px solid var(--panel-border);
+  background: rgba(14, 14, 20, 0.4);
+}
+
+.esc-menu-left h2 {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.esc-menu-right {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.esc-menu-right h2 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent-color);
+  letter-spacing: -0.01em;
+}
+
+.danger-btn {
+  background: rgba(231, 76, 60, 0.06);
+  border-color: rgba(231, 76, 60, 0.2);
+  color: #ff6b6b;
+}
+
+.danger-btn:hover {
+  background: var(--danger-color);
+  border-color: var(--danger-hover);
+  color: white;
+  box-shadow: 0 0 12px rgba(231, 76, 60, 0.3);
+}
+
+.slots-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.save-slot-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--panel-border);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.save-slot-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(243, 156, 18, 0.3);
+}
+
+.save-slot-item.occupied:hover {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 10px var(--panel-glow);
+}
+
+.slot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.slot-index {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-color);
+  text-transform: uppercase;
+}
+
+.slot-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.slot-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.slot-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.save-slot-item.occupied .slot-badge {
+  background: rgba(243, 156, 18, 0.1);
+  color: var(--accent-color);
+  border-color: rgba(243, 156, 18, 0.2);
+}
+
+.save-slot-item.empty {
+  opacity: 0.5;
+  border-style: dashed;
+}
+
+.save-slot-item.empty:hover {
+  opacity: 0.8;
+  border-style: solid;
+}
+
+
