@@ -91,7 +91,10 @@ export class BrushController implements BrushGhostProvider {
       return;
     }
 
-    const worldPolys = this.generatePolygons(worldPoints);
+    // Simplify path to reduce triangle count (tolerance in world pixels)
+    const simplifiedPoints = PolygonUtils.simplifyPath(worldPoints, 20);
+
+    const worldPolys = this.generatePolygons(simplifiedPoints);
     if (worldPolys.length === 0) {
       alert('Could not generate shapes from path.');
       return;
@@ -105,7 +108,7 @@ export class BrushController implements BrushGhostProvider {
       return;
     }
 
-    const conveyorSegments = this.generateConveyorSegments(worldStrokes);
+    const conveyorSegments = this.generateConveyorSegments([simplifiedPoints]);
 
     const { finalWorldPolys, finalWorldConveyorSegments } =
       this.mergeWithExisting(clippedPolys, conveyorSegments);

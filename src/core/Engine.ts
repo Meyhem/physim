@@ -237,6 +237,10 @@ export class Engine {
     return this.brushController.ghostThickness;
   }
 
+  public get currentStroke() {
+    return this.brushController.currentStroke;
+  }
+
   public hasStrokeData(): boolean {
     return this.brushController.hasStrokeData();
   }

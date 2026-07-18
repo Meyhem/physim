@@ -278,7 +278,26 @@ export class PolygonUtils {
     }
 
     // 3. Union everything together
-    return this.unionList(polys);
+    const unioned = this.unionList(polys);
+
+    // 4. If path is closed (endpoints close together), punch a hole
+    //    to prevent the interior from being filled.
+    if (points.length >= 3) {
+      const first = points[0];
+      const last = points[points.length - 1];
+      const dx = first.x - last.x;
+      const dy = first.y - last.y;
+      if (Math.sqrt(dx * dx + dy * dy) < thickness) {
+        const result: Point2D[][] = [];
+        for (const poly of unioned) {
+          const diff = this.difference(poly, points);
+          result.push(...diff);
+        }
+        return result;
+      }
+    }
+
+    return unioned;
   }
 
   /**
