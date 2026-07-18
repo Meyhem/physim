@@ -73,11 +73,11 @@ export class Toolbar {
     const btnDrawNew = this.container.querySelector('#btn-draw-new') as HTMLButtonElement;
 
     grabBtn.addEventListener('click', () => {
-      this.setActiveTool('grab', [grabBtn, explosiveBtn]);
+      this.setActiveTool('grab');
     });
 
     explosiveBtn.addEventListener('click', () => {
-      this.setActiveTool('explosive', [grabBtn, explosiveBtn]);
+      this.setActiveTool('explosive');
     });
 
     btnDrawNew.addEventListener('click', () => {
@@ -87,13 +87,13 @@ export class Toolbar {
     // Mousedown on buildings starts drag-and-hold placement
     buildCrusherBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
-      this.setActiveTool('grab', [grabBtn, explosiveBtn]); // Reset to grab tool for safety
+      this.setActiveTool('grab'); // Reset to grab tool for safety
       this.engine.startBuildingPlacement('crusher');
     });
 
     buildFurnaceBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
-      this.setActiveTool('grab', [grabBtn, explosiveBtn]);
+      this.setActiveTool('grab');
       this.engine.startBuildingPlacement('furnace');
     });
 
@@ -145,6 +145,7 @@ export class Toolbar {
 
       infoBtn.addEventListener('mousedown', (e) => {
         e.preventDefault();
+        this.setActiveTool('grab'); // Reset tool state to grab
         this.engine.startCustomShapePlacement(id);
       });
 
@@ -160,9 +161,13 @@ export class Toolbar {
     });
   }
 
-  private setActiveTool(tool: 'grab' | 'explosive', buttons: HTMLButtonElement[]): void {
+  private setActiveTool(tool: 'grab' | 'explosive'): void {
     this.engine.setTool(tool);
-    buttons.forEach(btn => btn.classList.remove('active'));
+    
+    const grabBtn = this.container.querySelector('#tool-grab');
+    const explosiveBtn = this.container.querySelector('#tool-explosive');
+    if (grabBtn) grabBtn.classList.remove('active');
+    if (explosiveBtn) explosiveBtn.classList.remove('active');
     
     const activeId = tool === 'grab' ? 'tool-grab' : 'tool-explosive';
     const activeBtn = this.container.querySelector(`#${activeId}`) as HTMLButtonElement;
