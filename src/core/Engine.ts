@@ -193,6 +193,7 @@ export class Engine {
   }
 
   public startBuildingPlacement(type: string): void {
+    this.inputManager.isLeftDown = true;
     this.buildingManager.startPlacement(type);
     this.placementAngle = 0;
   }
