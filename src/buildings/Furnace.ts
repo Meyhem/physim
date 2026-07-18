@@ -48,6 +48,7 @@ export class Furnace extends Building {
     const compound = Body.create({
       parts: [leftWall, rightWall, bottomWall, this.sensorBody],
       label: `building:furnace:${this.id}`,
+      frictionAir: 0.05,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS,
         mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.BUILDINGS | CollisionCategories.TOOLS
@@ -55,7 +56,6 @@ export class Furnace extends Building {
     });
 
     Body.setStatic(compound, false);
-    Body.setInertia(compound, Infinity);
     Body.setAngle(compound, this.angle);
 
     this.bodies = [compound];

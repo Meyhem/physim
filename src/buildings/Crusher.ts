@@ -58,6 +58,7 @@ export class Crusher extends Building {
     const compound = Body.create({
       parts: [leftSlant, rightSlant, leftChute, rightChute, this.sensorBody],
       label: `building:crusher:${this.id}`,
+      frictionAir: 0.05,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS,
         mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.BUILDINGS | CollisionCategories.TOOLS
@@ -65,7 +66,6 @@ export class Crusher extends Building {
     });
 
     Body.setStatic(compound, false);
-    Body.setInertia(compound, Infinity);
     Body.setAngle(compound, this.angle);
 
     this.bodies = [compound];

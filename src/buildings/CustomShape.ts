@@ -110,10 +110,19 @@ export class CustomShape extends Building {
       rects.push(rect);
     }
 
+    // Create a tiny sacrificial anchor body as parts[0].
+    // Matter.js replaces parts[0] with the compound's convex hull,
+    // so we sacrifice this anchor to preserve all real segment rects at parts[1..N].
+    const anchor = Bodies.circle(this.x, this.y, 0.5, {
+      isSensor: true,
+      collisionFilter: { category: 0, mask: 0 }
+    });
+
     // Combine segments into a compound body
     const compound = Body.create({
-      parts: rects,
+      parts: [anchor, ...rects],
       label: `custom:${this.def.brushType}:${this.def.id}`,
+      frictionAir: 0.05,
       collisionFilter: {
         category: CollisionCategories.TOOLS,
         mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.BUILDINGS | CollisionCategories.TOOLS
@@ -121,7 +130,6 @@ export class CustomShape extends Building {
     });
 
     Body.setStatic(compound, false);
-    Body.setInertia(compound, Infinity);
     Body.setAngle(compound, this.angle);
 
     this.bodies = [compound];
@@ -144,7 +152,7 @@ export class CustomShape extends Building {
     const body = this.getBody();
     if (!body) return;
 
-    const parts = body.parts.slice(1); // part[0] is the compound parent
+    const parts = body.parts.slice(1); // Skip parts[0] (compound convex hull), use actual segment rects
     const angle = body.angle;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);

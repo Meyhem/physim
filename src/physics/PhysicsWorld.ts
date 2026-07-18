@@ -17,7 +17,9 @@ export class PhysicsWorld {
 
   constructor() {
     this.engine = Engine.create({
-      gravity: { x: 0, y: 0.98 } // Realistic gravity (9.8 m/s^2 scaled)
+      gravity: { x: 0, y: 0.98 }, // Realistic gravity (9.8 m/s^2 scaled)
+      positionIterations: 10,      // Higher = more accurate collision resolution (default: 6)
+      velocityIterations: 8        // Higher = less overshoot on impulses (default: 4)
     });
     this.world = this.engine.world;
   }
@@ -60,10 +62,20 @@ export class PhysicsWorld {
     this.engine.timing.timeScale = scale;
   }
 
+  // Fixed sub-step size in ms — small enough to prevent collision overshoot
+  private static readonly FIXED_STEP_MS = 8; // ~120 Hz physics
+
   public update(dt: number): void {
-    // Step the physics engine
-    // Matter.js engine.update takes timestep in ms
-    Engine.update(this.engine, dt * 1000);
+    // Use fixed sub-stepping to prevent collision resolution overshoot.
+    // Variable-size timesteps cause the solver to push bodies apart
+    // by inconsistent amounts, leading to spazzing/jitter.
+    const totalMs = dt * 1000;
+    const steps = Math.ceil(totalMs / PhysicsWorld.FIXED_STEP_MS);
+    const stepMs = totalMs / steps;
+
+    for (let i = 0; i < steps; i++) {
+      Engine.update(this.engine, stepMs);
+    }
   }
 
   /**

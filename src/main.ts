@@ -29,6 +29,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     escMenu.init(uiContainer);
 
     engine.start();
+    (window as any).engine = engine;
     console.log('PhySim engine started successfully.');
   } catch (err) {
     console.error('Failed to initialize PhySim engine:', err);

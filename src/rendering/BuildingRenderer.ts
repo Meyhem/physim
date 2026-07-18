@@ -59,7 +59,7 @@ export class BuildingRenderer {
     if (body) {
       graphics.x = body.position.x;
       graphics.y = body.position.y;
-      graphics.rotation = body.angle;
+      graphics.rotation = (building instanceof CustomShape) ? 0 : body.angle;
     } else {
       graphics.x = building.x;
       graphics.y = building.y;
@@ -154,7 +154,7 @@ export class BuildingRenderer {
     } else if (building instanceof CustomShape) {
       const body = building.getBody();
       if (body) {
-        const parts = body.parts.slice(1);
+        const parts = body.parts.slice(1); // Skip parts[0] (compound convex hull)
         const strokeColor = building.def.brushType === 'solid' ? 0x7f8c8d : 0xf39c12;
 
         for (const part of parts) {
