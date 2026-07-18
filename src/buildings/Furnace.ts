@@ -15,7 +15,6 @@ export class Furnace extends Building {
   public initPhysics(world: World): void {
     // 1. Crucible walls (open top U-shape)
     const leftWall = Bodies.rectangle(this.x - 45, this.y, 16, 120, {
-      isStatic: true,
       friction: 0.2,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
@@ -23,7 +22,6 @@ export class Furnace extends Building {
     });
 
     const rightWall = Bodies.rectangle(this.x + 45, this.y, 16, 120, {
-      isStatic: true,
       friction: 0.2,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
@@ -31,7 +29,6 @@ export class Furnace extends Building {
     });
 
     const bottomWall = Bodies.rectangle(this.x, this.y + 55, 106, 16, {
-      isStatic: true,
       friction: 0.2,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
@@ -40,7 +37,6 @@ export class Furnace extends Building {
 
     // 2. Sensor inside the crucible
     this.sensorBody = Bodies.rectangle(this.x, this.y + 10, 70, 70, {
-      isStatic: true,
       isSensor: true,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS,
@@ -48,8 +44,22 @@ export class Furnace extends Building {
       }
     });
 
-    this.bodies = [leftWall, rightWall, bottomWall, this.sensorBody];
-    Composite.add(world, this.bodies);
+    // Combine into compound body
+    const compound = Body.create({
+      parts: [leftWall, rightWall, bottomWall, this.sensorBody],
+      label: `building:furnace:${this.id}`,
+      collisionFilter: {
+        category: CollisionCategories.BUILDINGS,
+        mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.BUILDINGS | CollisionCategories.TOOLS
+      }
+    });
+
+    Body.setStatic(compound, false);
+    Body.setInertia(compound, Infinity);
+    Body.setAngle(compound, this.angle);
+
+    this.bodies = [compound];
+    Composite.add(world, compound);
   }
 
   protected onItemEnter(body: Body): void {
@@ -80,9 +90,19 @@ export class Furnace extends Building {
         const matType = labelParts[1].replace('_crushed', '') as MaterialType;
         const props = Materials[matType] || Materials[MaterialType.DIRT];
 
+        const body = this.getBody();
+        const px = body ? body.position.x : this.x;
+        const py = body ? body.position.y : this.y;
+        const angle = body ? body.angle : this.angle;
+
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+
         // Output position: eject from the top right edge of the furnace
-        const ox = this.x + 55;
-        const oy = this.y - 40;
+        const dx = 55;
+        const dy = -40;
+        const ox = px + dx * cos - dy * sin;
+        const oy = py + dx * sin + dy * cos;
 
         // Ingot dimensions (36px wide, 14px high)
         const ingotBody = Bodies.rectangle(ox, oy, 36, 14, {
@@ -90,7 +110,6 @@ export class Furnace extends Building {
           restitution: 0.2,
           density: props.density * 1.2,
           collisionFilter: {
-            // Category tools or shards so it behaves like a dynamic movable entity
             category: CollisionCategories.SHARDS,
             mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.TOOLS | CollisionCategories.BUILDINGS
           }
@@ -102,10 +121,12 @@ export class Furnace extends Building {
         Composite.add(physicsWorld.world, ingotBody);
         physicsWorld.getShardBodies().add(ingotBody); // Register ingot in active bodies list
 
-        // Give it a tiny upward and outward push
+        // Give it a tiny upward and outward push (rotated)
+        const evx = 2 + Math.random() * 2;
+        const evy = -3 - Math.random() * 2;
         Body.setVelocity(ingotBody, {
-          x: 2 + Math.random() * 2,
-          y: -3 - Math.random() * 2
+          x: evx * cos - evy * sin,
+          y: evx * sin + evy * cos
         });
 
         // Remove from queue
@@ -114,5 +135,17 @@ export class Furnace extends Building {
     } else {
       this.heatIntensity = 0;
     }
+  }
+
+  public getBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+    const body = this.getBody();
+    const px = body ? body.position.x : this.x;
+    const py = body ? body.position.y : this.y;
+    return {
+      minX: px - this.width / 2,
+      maxX: px + this.width / 2,
+      minY: py - this.height / 2,
+      maxY: py + this.height / 2
+    };
   }
 }

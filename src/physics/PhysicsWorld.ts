@@ -34,10 +34,11 @@ export class PhysicsWorld {
       }
     });
 
-    // Make sure we only drag shards, tools, or ingots, not static terrain
+    // Make sure we only drag shards, tools, buildings, or ingots, not static terrain
     this.mouseConstraint.collisionFilter.mask = 
       CollisionCategories.SHARDS | 
-      CollisionCategories.TOOLS;
+      CollisionCategories.TOOLS |
+      CollisionCategories.BUILDINGS;
 
     Composite.add(this.world, this.mouseConstraint);
   }

@@ -2,6 +2,9 @@ import { World, Bounds } from 'matter-js';
 import { Building } from './Building.ts';
 import { Crusher } from './Crusher.ts';
 import { Furnace } from './Furnace.ts';
+import { CustomShape } from './CustomShape.ts';
+import type { CustomShapeDef } from './CustomShape.ts';
+import { getPointsBounds } from './CustomShape.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { TerrainManager } from '../terrain/TerrainManager.ts';
 
@@ -29,7 +32,7 @@ export class BuildingManager {
     this.isValidPlacement = false;
   }
 
-  public updateGhost(x: number, y: number, angle: number, terrainManager: TerrainManager): void {
+  public updateGhost(x: number, y: number, angle: number, terrainManager: TerrainManager, customShapeDefs: CustomShapeDef[]): void {
     if (!this.ghostBuilding) return;
 
     this.ghostBuilding.x = x;
@@ -37,7 +40,7 @@ export class BuildingManager {
     this.ghostBuilding.angle = angle;
 
     // Validate placement: check collisions with terrain and other buildings
-    this.isValidPlacement = this.validatePlacement(x, y, this.ghostBuilding.type, terrainManager);
+    this.isValidPlacement = this.validatePlacement(x, y, this.ghostBuilding.type, terrainManager, customShapeDefs);
   }
 
   public cancelPlacement(): void {
@@ -47,22 +50,31 @@ export class BuildingManager {
   /**
    * Confirms placement and creates the building.
    */
-  public confirmPlacement(physicsWorld: PhysicsWorld): Building | null {
+  public confirmPlacement(physicsWorld: PhysicsWorld, customShapeDefs: CustomShapeDef[]): Building | null {
     if (!this.ghostBuilding || !this.isValidPlacement) {
       this.ghostBuilding = null;
       return null;
     }
 
-    const { type, x, y } = this.ghostBuilding;
+    const { type, x, y, angle } = this.ghostBuilding;
     const id = `${type}_${Date.now()}`;
     
     let building: Building;
     if (type === 'crusher') {
       building = new Crusher(id, x, y);
-    } else {
+    } else if (type === 'furnace') {
       building = new Furnace(id, x, y);
+    } else {
+      // It's a custom shape def ID!
+      const def = customShapeDefs.find(d => d.id === type);
+      if (!def) {
+        this.ghostBuilding = null;
+        return null;
+      }
+      building = new CustomShape(id, def, x, y);
     }
 
+    building.angle = angle;
     building.initPhysics(physicsWorld.world);
     this.buildings.push(building);
 
@@ -79,7 +91,7 @@ export class BuildingManager {
   }
 
   public update(dt: number, physicsWorld: PhysicsWorld): void {
-    // 1. Update all buildings (timers, queue)
+    // 1. Update all buildings (timers, queue, conveyor forces)
     for (const building of this.buildings) {
       building.update(dt, physicsWorld);
     }
@@ -113,29 +125,63 @@ export class BuildingManager {
     }
   }
 
-  private validatePlacement(x: number, y: number, type: string, terrainManager: TerrainManager): boolean {
-    const w = type === 'crusher' ? 200 : 160;
-    const h = type === 'crusher' ? 200 : 160;
+  private getGhostBounds(ghost: { type: string; x: number; y: number }, customShapeDefs: CustomShapeDef[]) {
+    if (ghost.type === 'crusher') {
+      return {
+        minX: ghost.x - 100,
+        maxX: ghost.x + 100,
+        minY: ghost.y - 100,
+        maxY: ghost.y + 100
+      };
+    } else if (ghost.type === 'furnace') {
+      return {
+        minX: ghost.x - 80,
+        maxX: ghost.x + 80,
+        minY: ghost.y - 80,
+        maxY: ghost.y + 80
+      };
+    } else {
+      const def = customShapeDefs.find(d => d.id === ghost.type);
+      if (def) {
+        const pts = def.points;
+        if (pts.length > 0) {
+          const startPt = pts[0];
+          const bounds = getPointsBounds(pts);
+          return {
+            minX: ghost.x + (bounds.minX - startPt.x),
+            maxX: ghost.x + (bounds.maxX - startPt.x),
+            minY: ghost.y + (bounds.minY - startPt.y),
+            maxY: ghost.y + (bounds.maxY - startPt.y)
+          };
+        }
+      }
+    }
+    return { minX: ghost.x - 40, maxX: ghost.x + 40, minY: ghost.y - 40, maxY: ghost.y + 40 };
+  }
+
+  private validatePlacement(x: number, y: number, type: string, terrainManager: TerrainManager, customShapeDefs: CustomShapeDef[]): boolean {
+    const ghost = { type, x, y };
+    const gBounds = this.getGhostBounds(ghost, customShapeDefs);
 
     const ghostBounds = {
-      min: { x: x - w / 2, y: y - h / 2 },
-      max: { x: x + w / 2, y: y + h / 2 }
+      min: { x: gBounds.minX, y: gBounds.minY },
+      max: { x: gBounds.maxX, y: gBounds.maxY }
     };
 
     // 1. Check intersection with existing buildings
     for (const b of this.buildings) {
-      const bBounds = {
-        min: { x: b.x - b.width / 2, y: b.y - b.height / 2 },
-        max: { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+      const bBounds = b.getBounds();
+      const buildingBounds = {
+        min: { x: bBounds.minX, y: bBounds.minY },
+        max: { x: bBounds.maxX, y: bBounds.maxY }
       };
 
-      if (Bounds.overlaps(ghostBounds, bBounds)) {
+      if (Bounds.overlaps(ghostBounds, buildingBounds)) {
         return false; // Collides with building
       }
     }
 
     // 2. Check overlap with terrain static blocks
-    // Since terrain blocks are solid polygons, we check if the ghost rect overlaps with any terrain block bounding box
     const terrainBlocks = terrainManager.getBlocks();
     for (const block of terrainBlocks) {
       let bMinX = Infinity, bMaxX = -Infinity;
@@ -154,7 +200,6 @@ export class BuildingManager {
       };
 
       if (Bounds.overlaps(ghostBounds, blockBounds)) {
-        // Double check: if it intersects terrain, we don't allow placing buildings inside/overlapping terrain solid blocks
         return false;
       }
     }

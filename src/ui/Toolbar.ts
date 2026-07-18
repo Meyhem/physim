@@ -1,5 +1,5 @@
 import { Engine } from '../core/Engine.ts';
-import type { CustomShapeDef } from '../tools/CustomShape.ts';
+import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 
 export class Toolbar {
   private container: HTMLDivElement;

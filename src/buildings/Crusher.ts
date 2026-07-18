@@ -15,7 +15,6 @@ export class Crusher extends Building {
   public initPhysics(world: World): void {
     // 1. Slanted funnel walls
     const leftSlant = Bodies.rectangle(this.x - 60, this.y - 40, 130, 16, {
-      isStatic: true,
       angle: Math.PI / 6, // 30 degrees slanted
       friction: 0.1,
       collisionFilter: {
@@ -24,7 +23,6 @@ export class Crusher extends Building {
     });
 
     const rightSlant = Bodies.rectangle(this.x + 60, this.y - 40, 130, 16, {
-      isStatic: true,
       angle: -Math.PI / 6,
       friction: 0.1,
       collisionFilter: {
@@ -34,7 +32,6 @@ export class Crusher extends Building {
 
     // 2. Chute walls guiding the output
     const leftChute = Bodies.rectangle(this.x - 25, this.y + 40, 16, 80, {
-      isStatic: true,
       friction: 0.1,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
@@ -42,7 +39,6 @@ export class Crusher extends Building {
     });
 
     const rightChute = Bodies.rectangle(this.x + 25, this.y + 40, 16, 80, {
-      isStatic: true,
       friction: 0.1,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
@@ -51,7 +47,6 @@ export class Crusher extends Building {
 
     // 3. Central sensor catching incoming shards
     this.sensorBody = Bodies.rectangle(this.x, this.y, 40, 20, {
-      isStatic: true,
       isSensor: true,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS,
@@ -59,8 +54,22 @@ export class Crusher extends Building {
       }
     });
 
-    this.bodies = [leftSlant, rightSlant, leftChute, rightChute, this.sensorBody];
-    Composite.add(world, this.bodies);
+    // Combine segments into a compound body
+    const compound = Body.create({
+      parts: [leftSlant, rightSlant, leftChute, rightChute, this.sensorBody],
+      label: `building:crusher:${this.id}`,
+      collisionFilter: {
+        category: CollisionCategories.BUILDINGS,
+        mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.BUILDINGS | CollisionCategories.TOOLS
+      }
+    });
+
+    Body.setStatic(compound, false);
+    Body.setInertia(compound, Infinity);
+    Body.setAngle(compound, this.angle);
+
+    this.bodies = [compound];
+    Composite.add(world, compound);
   }
 
   protected onItemEnter(body: Body): void {
@@ -72,7 +81,6 @@ export class Crusher extends Building {
     });
 
     // Destroy the input shard physically
-    // (It will be removed from physics world in the Engine loop, but we tag it for removal)
     body.label = 'remove_queued';
   }
 
@@ -93,12 +101,22 @@ export class Crusher extends Building {
         const props = Materials[matType];
 
         const outputCount = 3 + Math.floor(Math.random() * 3); // 3 to 5 small pieces
-        
+
+        const body = this.getBody();
+        const px = body ? body.position.x : this.x;
+        const py = body ? body.position.y : this.y;
+        const angle = body ? body.angle : this.angle;
+
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+
         // Spawn small shards
         for (let i = 0; i < outputCount; i++) {
           // Output position: bottom chute, slightly randomized offset
-          const ox = this.x + (Math.random() - 0.5) * 20;
-          const oy = this.y + 70;
+          const dx = (Math.random() - 0.5) * 20;
+          const dy = 70;
+          const ox = px + dx * cos - dy * sin;
+          const oy = py + dx * sin + dy * cos;
 
           // Tiny triangle coordinates
           const r = 5 + Math.random() * 5;
@@ -111,10 +129,12 @@ export class Crusher extends Building {
           // Spawn body as a "crushed" shard
           const shardBody = physicsWorld.createShardBody(shardPts, `${matType}_crushed`, props.density * 0.8);
           
-          // Eject shards slightly downwards
+          // Eject shards slightly downwards (rotated)
+          const evx = (Math.random() - 0.5) * 2;
+          const evy = 2 + Math.random() * 2;
           Body.setVelocity(shardBody, {
-            x: (Math.random() - 0.5) * 2,
-            y: 2 + Math.random() * 2
+            x: evx * cos - evy * sin,
+            y: evx * sin + evy * cos
           });
         }
 
@@ -124,5 +144,17 @@ export class Crusher extends Building {
     } else {
       this.jawAngle = 0;
     }
+  }
+
+  public getBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+    const body = this.getBody();
+    const px = body ? body.position.x : this.x;
+    const py = body ? body.position.y : this.y;
+    return {
+      minX: px - this.width / 2,
+      maxX: px + this.width / 2,
+      minY: py - this.height / 2,
+      maxY: py + this.height / 2
+    };
   }
 }

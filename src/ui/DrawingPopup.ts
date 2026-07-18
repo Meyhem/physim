@@ -1,5 +1,5 @@
 import type { Point2D } from '../physics/PolygonUtils.ts';
-import type { CustomShapeDef } from '../tools/CustomShape.ts';
+import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 
 export class DrawingPopup {
   private container: HTMLDivElement | null = null;

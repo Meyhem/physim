@@ -62,6 +62,12 @@ export abstract class Building {
 
   public abstract update(dt: number, physicsWorld: any): void;
 
+  public abstract getBounds(): { minX: number; maxX: number; minY: number; maxY: number };
+
+  public getBody(): Body | null {
+    return this.bodies[0] || null;
+  }
+
   public getBodies(): Body[] {
     return this.bodies;
   }

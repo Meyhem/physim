@@ -1,4 +1,5 @@
 import { Body, Bodies, Composite, World, Bounds } from 'matter-js';
+import { Building } from './Building.ts';
 import { CollisionCategories } from '../core/Constants.ts';
 import type { Point2D } from '../physics/PolygonUtils.ts';
 
@@ -10,13 +11,34 @@ export interface CustomShapeDef {
   thickness: number;
 }
 
-export class CustomShape {
+export function getPointsBounds(points: Point2D[]) {
+  if (points.length === 0) return { width: 0, height: 0, minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return {
+    width: maxX - minX,
+    height: maxY - minY,
+    minX,
+    minY,
+    maxX,
+    maxY
+  };
+}
+
+export class CustomShape extends Building {
   public def: CustomShapeDef;
-  public body: Body | null = null;
   private segmentAngles: number[] = [];
   private segmentVectors: Point2D[] = [];
 
-  constructor(def: CustomShapeDef) {
+  constructor(id: string, def: CustomShapeDef, x: number, y: number) {
+    const bounds = getPointsBounds(def.points);
+    super(id, def.id, x, y, bounds.width, bounds.height);
     this.def = def;
     this.precomputeSegments();
   }
@@ -42,23 +64,24 @@ export class CustomShape {
     }
   }
 
-  /**
-   * Spawns this custom shape as a physical body in the world.
-   */
-  public spawn(x: number, y: number, world: World): Body {
-    // Translate all points relative to the first point, then offset by spawn position (x, y)
+  public initPhysics(world: World): void {
     const pts = this.def.points;
     if (pts.length < 2) {
-      // Return a dummy small circle if shape is degenerate
-      const dummy = Bodies.circle(x, y, 10);
+      const dummy = Bodies.circle(this.x, this.y, 10, {
+        collisionFilter: {
+          category: CollisionCategories.TOOLS,
+          mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.BUILDINGS | CollisionCategories.TOOLS
+        }
+      });
       Composite.add(world, dummy);
-      return dummy;
+      this.bodies = [dummy];
+      return;
     }
 
     const startPt = pts[0];
     const translatedPts = pts.map(p => ({
-      x: p.x - startPt.x + x,
-      y: p.y - startPt.y + y
+      x: p.x - startPt.x + this.x,
+      y: p.y - startPt.y + this.y
     }));
 
     // Create rectangles for each segment
@@ -88,8 +111,6 @@ export class CustomShape {
     }
 
     // Combine segments into a compound body
-    // Matter.js Body.create requires parts array where the first part is the main container body
-    // We create a container, or simply use Body.create directly
     const compound = Body.create({
       parts: rects,
       label: `custom:${this.def.brushType}:${this.def.id}`,
@@ -99,51 +120,75 @@ export class CustomShape {
       }
     });
 
-    // Make it non-static so it can be grabbed and dragged around!
     Body.setStatic(compound, false);
+    Body.setInertia(compound, Infinity);
+    Body.setAngle(compound, this.angle);
 
-    this.body = compound;
+    this.bodies = [compound];
     Composite.add(world, compound);
-    return compound;
   }
 
-  /**
-   * Applies conveyor propulsion force to touching bodies.
-   */
-  public applyConveyorForces(shards: Set<Body>): void {
-    if (this.def.brushType !== 'conveyor' || !this.body) return;
+  protected onItemEnter(_body: Body): void {
+    // Custom shapes do not process items in a queue
+  }
 
-    // For each segment in the compound body, check collision/touch
-    // Since Matter.js handles parts, body.parts contains all individual segment bodies
-    const parts = this.body.parts.slice(1); // part[0] is the compound parent
+  public update(_dt: number, physicsWorld: any): void {
+    if (this.def.brushType === 'conveyor') {
+      const shards = physicsWorld.getShardBodies();
+      this.applyConveyorForces(shards);
+    }
+  }
+
+  public applyConveyorForces(shards: Set<Body>): void {
+    if (this.def.brushType !== 'conveyor') return;
+    const body = this.getBody();
+    if (!body) return;
+
+    const parts = body.parts.slice(1); // part[0] is the compound parent
+    const angle = body.angle;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
 
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i];
-      const vec = this.segmentVectors[i]; // Direction vector of this segment
+      const vec = this.segmentVectors[i];
 
-      // Find if any shard is touching this segment
+      const rx = vec.x * cos - vec.y * sin;
+      const ry = vec.x * sin + vec.y * cos;
+
       for (const shard of shards) {
-        // Skip compound parent bodies
         if (shard.parts.length > 1) continue;
 
-        // Simple distance check to see if shard touches segment bounding box
         const dx = shard.position.x - part.position.x;
         const dy = shard.position.y - part.position.y;
         const distSq = dx * dx + dy * dy;
 
-        // If close enough, check AABB overlap
         const maxDist = 80;
         if (distSq < maxDist * maxDist) {
           if (Bounds.overlaps(part.bounds, shard.bounds)) {
-            // Apply force along conveyor segment direction
             const forceMag = 0.0006 * shard.mass;
             Body.applyForce(shard, shard.position, {
-              x: vec.x * forceMag,
-              y: vec.y * forceMag
+              x: rx * forceMag,
+              y: ry * forceMag
             });
           }
         }
       }
     }
+  }
+
+  public getBounds(): { minX: number; maxX: number; minY: number; maxY: number } {
+    const pts = this.def.points;
+    if (pts.length === 0) {
+      return { minX: this.x, maxX: this.x, minY: this.y, maxY: this.y };
+    }
+    const startPt = pts[0];
+    const bounds = getPointsBounds(pts);
+    return {
+      minX: this.x + (bounds.minX - startPt.x),
+      maxX: this.x + (bounds.maxX - startPt.x),
+      minY: this.y + (bounds.minY - startPt.y),
+      maxY: this.y + (bounds.maxY - startPt.y)
+    };
   }
 }
