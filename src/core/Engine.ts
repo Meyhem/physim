@@ -18,6 +18,7 @@ import { SaveManager } from '../save/SaveManager.ts';
 import { Body, Bodies, Composite } from 'matter-js';
 import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
+import { CustomShapeRenderer } from '../rendering/CustomShapeRenderer.ts';
 
 export class Engine {
   private camera!: Camera;
@@ -25,6 +26,7 @@ export class Engine {
   private terrainManager!: TerrainManager;
   private terrainRenderer!: TerrainRenderer;
   private shardRenderer!: ShardRenderer;
+  private customShapeRenderer!: CustomShapeRenderer;
   private particleSystem!: ParticleSystem;
   private inputManager!: InputManager;
   private physicsWorld!: PhysicsWorld;
@@ -86,6 +88,7 @@ export class Engine {
     this.terrainRenderer.update(this.terrainManager);
 
     this.shardRenderer = new ShardRenderer(this.renderer.shardsContainer);
+    this.customShapeRenderer = new CustomShapeRenderer(this.renderer.toolsContainer);
     this.particleSystem = new ParticleSystem(this.renderer.particlesContainer);
 
     this.buildingManager = new BuildingManager();
@@ -346,6 +349,7 @@ export class Engine {
     // 7. Update render data
     this.terrainRenderer.update(this.terrainManager);
     this.shardRenderer.update(this.physicsWorld.getShardBodies());
+    this.customShapeRenderer.update(this.customShapes);
     this.buildingRenderer.update(this.buildingManager);
 
     // 8. Autosave timer tick
