@@ -40,9 +40,6 @@ export class TerrainRenderer {
   private createBlockGraphics(block: TerrainBlock): void {
     const props = Materials[block.materialType];
     const graphics = new Graphics();
-
-    // Set fill color
-    graphics.fill({ color: props.color });
     
     // Draw polygon
     if (block.points.length > 0) {
@@ -53,7 +50,8 @@ export class TerrainRenderer {
       graphics.closePath();
     }
 
-    // Add a dark slate border for grid separation/strata look
+    // Set fill color and stroke after path is created
+    graphics.fill({ color: props.color });
     graphics.stroke({ color: 0x1a1a24, width: 2 });
 
     this.container.addChild(graphics);

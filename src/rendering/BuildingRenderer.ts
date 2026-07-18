@@ -58,9 +58,6 @@ export class BuildingRenderer {
 
     if (building instanceof Crusher) {
       // 1. Slanted funnels
-      graphics.fill({ color: 0x42424F });
-      graphics.stroke({ color: 0x2A2A35, width: 3 });
-      
       // Left funnel slab
       graphics.moveTo(-100, -80);
       graphics.lineTo(-20, 0);
@@ -75,17 +72,16 @@ export class BuildingRenderer {
       graphics.lineTo(100, -60);
       graphics.closePath();
 
+      graphics.fill({ color: 0x42424F });
+      graphics.stroke({ color: 0x2A2A35, width: 3 });
+
       // Outer Support/Gears
+      graphics.rect(-25, 40, 10, 60); // left chute guide
+      graphics.rect(15, 40, 10, 60);  // right chute guide
       graphics.fill({ color: 0x2D2D38 });
       graphics.stroke({ color: 0x1A1A24, width: 2 });
-      
-      graphics.drawRect(-25, 40, 10, 60); // left chute guide
-      graphics.drawRect(15, 40, 10, 60);  // right chute guide
 
       // Draw wobbling crusher jaws
-      graphics.fill({ color: 0x8E251E }); // Rust red jaw
-      graphics.stroke({ color: 0x4D1410, width: 2 });
-      
       const jawAngle = building.jawAngle;
       
       // Helper function to draw a rotated rectangle
@@ -109,6 +105,8 @@ export class BuildingRenderer {
           graphics.lineTo(pts[i].x, pts[i].y);
         }
         graphics.closePath();
+        graphics.fill({ color: 0x8E251E }); // Rust red jaw
+        graphics.stroke({ color: 0x4D1410, width: 2 });
       };
 
       // Draw left wobbling jaw
@@ -118,10 +116,6 @@ export class BuildingRenderer {
       drawRotatedRect(21, -10, 12, 45, -jawAngle);
 
     } else if (building instanceof Furnace) {
-      // 1. Furnace outer chamber
-      graphics.fill({ color: 0x3E302A }); // Terracotta slate
-      graphics.stroke({ color: 0x241A16, width: 3 });
-      
       // Draw U-shape box
       graphics.moveTo(-45, -60);
       graphics.lineTo(-45, 60);
@@ -132,19 +126,21 @@ export class BuildingRenderer {
       graphics.lineTo(-30, 45);
       graphics.lineTo(-30, -60);
       graphics.closePath();
+      graphics.fill({ color: 0x3E302A }); // Terracotta slate
+      graphics.stroke({ color: 0x241A16, width: 3 });
 
       // 2. Glow effect if active
       if (building.heatIntensity > 0) {
+        graphics.circle(0, 10, 25);
         graphics.fill({ color: 0xFF4500, alpha: building.heatIntensity * 0.4 });
-        graphics.drawCircle(0, 10, 25);
         
-        // Heat core core
+        // Heat core
+        graphics.circle(0, 10, 12);
         graphics.fill({ color: 0xFFD700, alpha: building.heatIntensity * 0.7 });
-        graphics.drawCircle(0, 10, 12);
       } else {
         // Cold dark interior
+        graphics.circle(0, 10, 20);
         graphics.fill({ color: 0x1A120F });
-        graphics.drawCircle(0, 10, 20);
       }
     }
   }
@@ -168,10 +164,9 @@ export class BuildingRenderer {
     const h = ghost.type === 'crusher' ? 200 : 160;
 
     // Draw dashed layout box for ghost building preview
+    this.ghostGraphics.rect(-w / 2, -h / 2, w, h);
     this.ghostGraphics.fill({ color, alpha: 0.15 });
     this.ghostGraphics.stroke({ color, width: 2, alpha: 0.6 });
-    
-    this.ghostGraphics.drawRect(-w / 2, -h / 2, w, h);
     
     // Draw internal details of what building we are placing
     if (ghost.type === 'crusher') {
@@ -183,12 +178,14 @@ export class BuildingRenderer {
       this.ghostGraphics.moveTo(w / 2, -h / 2 + 20);
       this.ghostGraphics.lineTo(20, 0);
       this.ghostGraphics.lineTo(25, h / 2 - 20);
+      this.ghostGraphics.stroke({ color, width: 1.5, alpha: 0.4 });
     } else {
       // U-shape oven preview
       this.ghostGraphics.moveTo(-w / 2 + 35, -h / 2 + 20);
       this.ghostGraphics.lineTo(-w / 2 + 35, h / 2 - 25);
       this.ghostGraphics.lineTo(w / 2 - 35, h / 2 - 25);
       this.ghostGraphics.lineTo(w / 2 - 35, -h / 2 + 20);
+      this.ghostGraphics.stroke({ color, width: 1.5, alpha: 0.4 });
     }
   }
 

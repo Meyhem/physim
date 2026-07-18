@@ -51,8 +51,6 @@ export class ShardRenderer {
     const matType = (labelParts[1] as MaterialType) || MaterialType.DIRT;
     const props = Materials[matType] || Materials[MaterialType.DIRT];
 
-    graphics.fill({ color: props.color });
-
     // Draw the vertices relative to the body's center
     // Matter.js body.parts[0].vertices contains the polygon vertices
     const vertices = body.parts[0].vertices;
@@ -70,7 +68,8 @@ export class ShardRenderer {
       graphics.closePath();
     }
 
-    // Add border to shards for readability
+    // Set fill color and stroke after path is created
+    graphics.fill({ color: props.color });
     graphics.stroke({ color: 0x111116, width: 1 });
 
     return graphics;
