@@ -3,6 +3,7 @@ import { BuildingManager } from '../buildings/BuildingManager.ts';
 import { Building } from '../buildings/Building.ts';
 import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
+import type { CustomShapeDef } from '../tools/CustomShape.ts';
 
 export class BuildingRenderer {
   private container: Container;
@@ -187,6 +188,34 @@ export class BuildingRenderer {
       this.ghostGraphics.lineTo(w / 2 - 35, -h / 2 + 20);
       this.ghostGraphics.stroke({ color, width: 1.5, alpha: 0.4 });
     }
+  }
+
+  public updateCustomShapeGhost(def: CustomShapeDef, x: number, y: number, angle: number): void {
+    this.ghostGraphics.clear();
+    this.ghostGraphics.x = x;
+    this.ghostGraphics.y = y;
+    this.ghostGraphics.rotation = angle;
+
+    const pts = def.points;
+    if (pts.length < 2) return;
+
+    const startPt = pts[0];
+    const relativePts = pts.map(p => ({
+      x: p.x - startPt.x,
+      y: p.y - startPt.y
+    }));
+
+    const strokeColor = def.brushType === 'solid' ? 0x7f8c8d : 0xf39c12;
+
+    this.ghostGraphics.moveTo(relativePts[0].x, relativePts[0].y);
+    for (let i = 1; i < relativePts.length; i++) {
+      this.ghostGraphics.lineTo(relativePts[i].x, relativePts[i].y);
+    }
+    this.ghostGraphics.stroke({ color: strokeColor, width: def.thickness, alpha: 0.5 });
+  }
+
+  public clearGhost(): void {
+    this.ghostGraphics.clear();
   }
 
   public clear(): void {

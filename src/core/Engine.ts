@@ -40,6 +40,8 @@ export class Engine {
   private customShapes: CustomShape[] = [];
   public onCustomShapesUpdated?: (defs: CustomShapeDef[]) => void;
 
+  public placementCustomShapeDef: CustomShapeDef | null = null;
+
   // Save System
   public saveManager!: SaveManager;
   private autosaveTimer: number = 300; // 5 minutes in seconds
@@ -183,13 +185,33 @@ export class Engine {
     }
   }
 
-  public spawnCustomShape(id: string): void {
+  public startCustomShapePlacement(id: string): void {
     const def = this.customShapeDefs.find(d => d.id === id);
     if (def) {
-      const shape = new CustomShape(def);
-      shape.spawn(this.camera.x, this.camera.y - 150, this.physicsWorld.world);
-      this.customShapes.push(shape);
+      this.placementCustomShapeDef = def;
+      this.placementAngle = 0;
+      this.inputManager.isLeftDown = true;
     }
+  }
+
+  public confirmCustomShapePlacement(): void {
+    if (!this.placementCustomShapeDef) return;
+    
+    const worldPos = this.camera.screenToWorld(this.inputManager.mouseX, this.inputManager.mouseY);
+    const shape = new CustomShape(this.placementCustomShapeDef);
+    const body = shape.spawn(worldPos.x, worldPos.y, this.physicsWorld.world);
+    if (body) {
+      Body.setAngle(body, this.placementAngle);
+    }
+    this.customShapes.push(shape);
+    
+    this.placementCustomShapeDef = null;
+    this.buildingRenderer.clearGhost();
+  }
+
+  public cancelCustomShapePlacement(): void {
+    this.placementCustomShapeDef = null;
+    this.buildingRenderer.clearGhost();
   }
 
   public startBuildingPlacement(type: string): void {
@@ -279,6 +301,20 @@ export class Engine {
       // Release to place!
       if (!this.inputManager.isLeftDown) {
         this.confirmBuildingPlacement();
+      }
+    } else if (this.placementCustomShapeDef) {
+      if (this.inputManager.isKeyPressed('q')) {
+        this.placementAngle -= dt * 2.5;
+      }
+      if (this.inputManager.isKeyPressed('e')) {
+        this.placementAngle += dt * 2.5;
+      }
+
+      const worldPos = this.camera.screenToWorld(this.inputManager.mouseX, this.inputManager.mouseY);
+      this.buildingRenderer.updateCustomShapeGhost(this.placementCustomShapeDef, worldPos.x, worldPos.y, this.placementAngle);
+
+      if (!this.inputManager.isLeftDown) {
+        this.confirmCustomShapePlacement();
       }
     } else if (this.activeTool === 'explosive') {
       if (this.inputManager.isLeftDown) {

@@ -143,8 +143,9 @@ export class Toolbar {
       const editBtn = item.querySelector('.edit-btn') as HTMLButtonElement;
       const deleteBtn = item.querySelector('.delete-btn') as HTMLButtonElement;
 
-      infoBtn.addEventListener('click', () => {
-        this.engine.spawnCustomShape(id);
+      infoBtn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        this.engine.startCustomShapePlacement(id);
       });
 
       editBtn.addEventListener('click', (e) => {
