@@ -60,11 +60,15 @@ export class BrushController {
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len < 2) return; // Too short, ignore
 
-    // Generate segment rectangle
+    // Generate segment rectangle + joint circle to fill gaps at corners
     const segRect = PolygonUtils.getSegmentRectangle(p1, p2, this.brushThickness);
+    const jointCircle = PolygonUtils.getCirclePolygon(p1, this.brushThickness / 2);
+
+    // Union the segment rect with the joint circle for a seamless connection
+    const segPolys = PolygonUtils.unionList([segRect, jointCircle]);
 
     // Clip against terrain
-    let clippedPolys = [segRect];
+    let clippedPolys = segPolys;
     const terrainBlocks = this.terrainManager.getBlocks();
     for (const block of terrainBlocks) {
       const tempClipped: Point2D[][] = [];

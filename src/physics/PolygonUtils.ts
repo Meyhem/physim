@@ -105,11 +105,11 @@ export class PolygonUtils {
    * Returns list of resulting polygons.
    */
   public static difference(polyA: Point2D[], polyB: Point2D[]): Point2D[][] {
-    const coordsA = [[polyA.map(p => [p.x, p.y] as [number, number])]] as any;
-    const coordsB = [[polyB.map(p => [p.x, p.y] as [number, number])]] as any;
-
     try {
-      const result = polygonClipping.difference(coordsA, coordsB);
+      const result = polygonClipping.difference(
+        this.toClippingPolygon(polyA),
+        this.toClippingPolygon(polyB),
+      );
       return this.multiPolygonToPointArrays(result);
     } catch (e) {
       console.warn("Polygon difference failed, falling back to original polygon", e);
@@ -121,11 +121,11 @@ export class PolygonUtils {
    * Performs polygon intersection (A * B).
    */
   public static intersection(polyA: Point2D[], polyB: Point2D[]): Point2D[][] {
-    const coordsA = [[polyA.map(p => [p.x, p.y] as [number, number])]] as any;
-    const coordsB = [[polyB.map(p => [p.x, p.y] as [number, number])]] as any;
-
     try {
-      const result = polygonClipping.intersection(coordsA, coordsB);
+      const result = polygonClipping.intersection(
+        this.toClippingPolygon(polyA),
+        this.toClippingPolygon(polyB),
+      );
       return this.multiPolygonToPointArrays(result);
     } catch (e) {
       console.warn("Polygon intersection failed", e);
@@ -138,11 +138,11 @@ export class PolygonUtils {
    * Returns list of resulting polygons.
    */
   public static union(polyA: Point2D[], polyB: Point2D[]): Point2D[][] {
-    const coordsA = [[polyA.map(p => [p.x, p.y] as [number, number])]] as any;
-    const coordsB = [[polyB.map(p => [p.x, p.y] as [number, number])]] as any;
-
     try {
-      const result = polygonClipping.union(coordsA, coordsB);
+      const result = polygonClipping.union(
+        this.toClippingPolygon(polyA),
+        this.toClippingPolygon(polyB),
+      );
       return this.multiPolygonToPointArrays(result);
     } catch (e) {
       console.warn("Polygon union failed, returning both input polygons", e);
@@ -161,8 +161,8 @@ export class PolygonUtils {
 
     for (let i = 1; i < polys.length; i++) {
       const nextPoly = polys[i];
-      const coordsCurrent = currentList.map(p => [p.map(pt => [pt.x, pt.y] as [number, number])]) as any;
-      const coordsNext = [[nextPoly.map(pt => [pt.x, pt.y] as [number, number])]] as any;
+      const coordsCurrent = currentList.map((p) => this.toClippingPolygon(p));
+      const coordsNext = this.toClippingPolygon(nextPoly);
 
       try {
         const result = polygonClipping.union(coordsCurrent, coordsNext);
@@ -173,6 +173,15 @@ export class PolygonUtils {
       }
     }
     return currentList;
+  }
+
+  /**
+   * Converts a polygon (list of vertices) into the ring format that the
+   * polygon-clipping library expects ([ring] where ring is [x, y] pairs).
+   * Centralizes the coordinate mapping used by all boolean operations.
+   */
+  private static toClippingPolygon(poly: Point2D[]): polygonClipping.Polygon {
+    return [poly.map((p) => [p.x, p.y] as [number, number])];
   }
 
   /**
