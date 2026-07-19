@@ -63,10 +63,6 @@ export class EscMenu {
     // Escape key binds
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        const drawingBackdrop = parent.querySelector('.modal-backdrop');
-        // Do not trigger esc menu if the drawing modal is open
-        if (drawingBackdrop && (drawingBackdrop as HTMLElement).style.display === 'flex') return;
-
         if (this.container.style.display === 'none') {
           this.open();
         } else {

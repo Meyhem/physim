@@ -16,9 +16,6 @@ export class Camera {
   private viewportWidth: number = 1200;
   private viewportHeight: number = 800;
 
-  private shakeIntensity: number = 0;
-  private shakeDecay: number = 0.92; // Slight decay each frame
-
   constructor(startX: number, startY: number, startZoom: number = 1.0) {
     this.x = startX;
     this.y = startY;
@@ -47,21 +44,17 @@ export class Camera {
 
     // Adjust camera position so the cursor remains over the same world point
     const worldPt = this.screenToWorld(screenX, screenY);
-    
+
     // Position camera such that screenCoords = worldToScreen(worldPt)
     // worldToScreen(p) = (p.x - camera.x) * zoom + viewportWidth/2
     // For screenCoords to remain screenX:
     // screenX = (worldPt.x - newCamera.x) * newZoom + viewportWidth/2
     // newCamera.x = worldPt.x - (screenX - viewportWidth/2) / newZoom
-    
+
     const newZoom = this.targetZoom;
     this.targetX = worldPt.x - (screenX - this.viewportWidth / 2) / newZoom;
     this.targetY = worldPt.y - (screenY - this.viewportHeight / 2) / newZoom;
     this.clampTarget();
-  }
-
-  public triggerShake(intensity: number): void {
-    this.shakeIntensity = intensity;
   }
 
   public update(dt: number): void {
@@ -72,27 +65,13 @@ export class Camera {
     this.zoom += (this.targetZoom - this.zoom) * lerpSpeed;
 
     this.clampActual();
-
-    // Decay shake
-    if (this.shakeIntensity > 0.05) {
-      this.shakeIntensity *= Math.pow(this.shakeDecay, dt * 60);
-    } else {
-      this.shakeIntensity = 0;
-    }
   }
 
   public applyToContainer(container: Container): void {
-    let shakeX = 0;
-    let shakeY = 0;
-    if (this.shakeIntensity > 0.05) {
-      shakeX = (Math.random() - 0.5) * this.shakeIntensity;
-      shakeY = (Math.random() - 0.5) * this.shakeIntensity;
-    }
-
     container.scale.set(this.zoom);
     container.position.set(
-      this.viewportWidth / 2 - (this.x + shakeX) * this.zoom,
-      this.viewportHeight / 2 - (this.y + shakeY) * this.zoom
+      this.viewportWidth / 2 - this.x * this.zoom,
+      this.viewportHeight / 2 - this.y * this.zoom
     );
   }
 
@@ -108,6 +87,19 @@ export class Camera {
       x: (worldX - this.x) * this.zoom + this.viewportWidth / 2,
       y: (worldY - this.y) * this.zoom + this.viewportHeight / 2
     };
+  }
+
+  /**
+   * Snap the camera directly to a target position/zoom (used by save loading).
+   * Resets both the visible position and the smoothed target.
+   */
+  public snapTo(x: number, y: number, zoom: number): void {
+    this.x = x;
+    this.y = y;
+    this.zoom = zoom;
+    this.targetX = x;
+    this.targetY = y;
+    this.targetZoom = zoom;
   }
 
   private clampTarget(): void {

@@ -4,15 +4,12 @@ import { BuildingManager } from '../buildings/BuildingManager.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { SaveManager } from './SaveManager.ts';
 import { Materials, MaterialType } from '../terrain/Materials.ts';
-import { Crusher } from '../buildings/Crusher.ts';
-import { Furnace } from '../buildings/Furnace.ts';
-import { Miner } from '../buildings/Miner.ts';
 import { CustomShape } from '../buildings/CustomShape.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
+import { BuildingRegistry } from '../buildings/BuildingRegistry.ts';
 import { PolygonUtils } from '../physics/PolygonUtils.ts';
 import type { Point2D } from '../physics/PolygonUtils.ts';
-import { Body, Bodies, Composite } from 'matter-js';
-import { CollisionCategories } from '../core/Constants.ts';
+import { Body } from 'matter-js';
 
 export class SaveLoadController {
   private camera: Camera;
@@ -25,6 +22,7 @@ export class SaveLoadController {
 
   private autosaveTimer: number = 300;
   private isPaused: boolean = false;
+  private registry: BuildingRegistry = new BuildingRegistry();
 
   constructor(
     camera: Camera,
@@ -46,10 +44,6 @@ export class SaveLoadController {
 
   public setPaused(paused: boolean): void {
     this.isPaused = paused;
-  }
-
-  public setOnCustomShapesUpdated(cb: (defs: CustomShapeDef[]) => void): void {
-    this.onCustomShapesUpdated = cb;
   }
 
   public tickAutosave(dt: number): void {
@@ -142,17 +136,12 @@ export class SaveLoadController {
 
   private deserializeCamera(cameraState: any): void {
     if (!cameraState) return;
-    this.camera.x = cameraState.x;
-    this.camera.y = cameraState.y;
-    this.camera.zoom = cameraState.zoom;
-    (this.camera as any).targetX = cameraState.x;
-    (this.camera as any).targetY = cameraState.y;
-    (this.camera as any).targetZoom = cameraState.zoom;
+    this.camera.snapTo(cameraState.x, cameraState.y, cameraState.zoom);
   }
 
   private deserializeTerrain(terrainBlocks: any[]): void {
     if (!terrainBlocks) return;
-    (this.terrainManager as any).blocks = terrainBlocks;
+    this.terrainManager.setBlocks(terrainBlocks);
     for (const block of terrainBlocks) {
       const props = Materials[block.materialType as MaterialType] || Materials[MaterialType.DIRT];
       this.physicsWorld.createTerrainBody(block.id, block.points, props.density);
@@ -242,21 +231,13 @@ export class SaveLoadController {
   }
 
   private createBuildingFromState(b: any): any {
-    if (b.type === 'crusher') {
-      return new Crusher(b.id, b.x, b.y);
-    }
-    if (b.type === 'furnace') {
-      return new Furnace(b.id, b.x, b.y);
-    }
-    if (b.type === 'miner') {
-      const mat = (b.materialType as MaterialType) || MaterialType.DIRT;
-      return new Miner(b.id, b.x, b.y, this.terrainManager, mat);
-    }
-    const def = this.customShapeDefs.find(d => d.id === b.type);
-    if (def) {
-      return new CustomShape(b.id, def, b.x, b.y);
-    }
-    return null;
+    const def = this.registry.resolve(b.type, this.customShapeDefs);
+    if (!def) return null;
+    return def.create(b.id, b.x, b.y, {
+      terrainManager: this.terrainManager,
+      customShapeDefs: this.customShapeDefs,
+      minerMaterialType: (b.materialType as MaterialType) || undefined,
+    });
   }
 
   private deserializeLegacyCustomShapes(customShapes: any[]): void {
@@ -287,18 +268,8 @@ export class SaveLoadController {
 
       let body;
       if (s.isIngot) {
-        body = Bodies.rectangle(s.x, s.y, 36, 14, {
-          friction: 0.1,
-          restitution: 0.2,
-          density: props.density * 1.2,
-          collisionFilter: {
-            category: CollisionCategories.SHARDS,
-            mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.TOOLS | CollisionCategories.BUILDINGS,
-          },
-        });
-        body.label = s.label;
-        Composite.add(this.physicsWorld.world, body);
-        this.physicsWorld.getShardBodies().add(body);
+        body = this.physicsWorld.createIngotBody(s.x, s.y, matType, props.density);
+        body.label = s.label; // preserve exact saved label
       } else if (s.radius != null) {
         body = this.physicsWorld.createCircleShardBody(s.x, s.y, s.radius, matType, props.density);
       } else if (s.vertices) {

@@ -1,4 +1,5 @@
 import { Body, World, Composite } from 'matter-js';
+import type { Graphics } from 'pixi.js';
 
 export abstract class Building {
   public id: string;
@@ -47,7 +48,7 @@ export abstract class Building {
   public checkSensorCollision(collidedBody: Body): void {
     if (!this.sensorBody) return;
     if (collidedBody === this.sensorBody) return;
-    
+
     // Check if the collided body is a shard
     if (collidedBody.label.startsWith('shard:')) {
       // Check if already in queue
@@ -64,6 +65,13 @@ export abstract class Building {
 
   public abstract getBounds(): { minX: number; maxX: number; minY: number; maxY: number };
 
+  /**
+   * Render this building's artwork into the given Graphics, in local space.
+   * The caller is responsible for positioning/rotating the Graphics to match
+   * the building's physics body beforehand.
+   */
+  public abstract draw(g: Graphics): void;
+
   public getBody(): Body | null {
     return this.bodies[0] || null;
   }
@@ -74,5 +82,22 @@ export abstract class Building {
 
   public getSensorBody(): Body | null {
     return this.sensorBody;
+  }
+
+  /**
+   * World-space position + angle of the building's main body (falls back to the
+   * stored transform when physics hasn't been initialized yet).
+   */
+  /**
+   * World-space position + angle of the building's main body (falls back to the
+   * stored transform when physics hasn't been initialized yet). Public so the
+   * renderer can sync the Graphics transform without reaching into the body.
+   */
+  public getWorldTransform(): { x: number; y: number; angle: number } {
+    const body = this.getBody();
+    if (body) {
+      return { x: body.position.x, y: body.position.y, angle: body.angle };
+    }
+    return { x: this.x, y: this.y, angle: this.angle };
   }
 }

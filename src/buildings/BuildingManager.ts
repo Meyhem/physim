@@ -1,19 +1,15 @@
 import { World, Bounds } from 'matter-js';
 import { Building } from './Building.ts';
-import { Crusher } from './Crusher.ts';
-import { Furnace } from './Furnace.ts';
-import { Miner } from './Miner.ts';
-import { CustomShape } from './CustomShape.ts';
 import type { CustomShapeDef } from './CustomShape.ts';
-import { getPointsBounds, getPolygonsBounds } from './CustomShape.ts';
+import { BuildingRegistry } from './BuildingRegistry.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { TerrainManager } from '../terrain/TerrainManager.ts';
-import { MaterialType } from '../terrain/Materials.ts';
 
 export class BuildingManager {
   private buildings: Building[] = [];
   private ghostBuilding: { type: string; x: number; y: number; angle: number } | null = null;
   private isValidPlacement: boolean = false;
+  private registry: BuildingRegistry = new BuildingRegistry();
 
   constructor() {}
 
@@ -60,26 +56,14 @@ export class BuildingManager {
 
     const { type, x, y, angle } = this.ghostBuilding;
     const id = `${type}_${Date.now()}`;
-    
-    let building: Building;
-    if (type === 'crusher') {
-      building = new Crusher(id, x, y);
-    } else if (type === 'furnace') {
-      building = new Furnace(id, x, y);
-    } else if (type === 'miner') {
-      const block = terrainManager.getMaterialBelow(x, y);
-      const mat = block ? block.materialType : MaterialType.DIRT;
-      building = new Miner(id, x, y, terrainManager, mat);
-    } else {
-      // It's a custom shape def ID!
-      const def = customShapeDefs.find(d => d.id === type);
-      if (!def) {
-        this.ghostBuilding = null;
-        return null;
-      }
-      building = new CustomShape(id, def, x, y);
+
+    const def = this.registry.resolve(type, customShapeDefs);
+    if (!def) {
+      this.ghostBuilding = null;
+      return null;
     }
 
+    const building = def.create(id, x, y, { terrainManager, customShapeDefs });
     building.angle = angle;
     building.initPhysics(physicsWorld.world);
     this.buildings.push(building);
@@ -132,49 +116,9 @@ export class BuildingManager {
   }
 
   private getGhostBounds(ghost: { type: string; x: number; y: number }, customShapeDefs: CustomShapeDef[]) {
-    if (ghost.type === 'crusher') {
-      return {
-        minX: ghost.x - 100,
-        maxX: ghost.x + 100,
-        minY: ghost.y - 100,
-        maxY: ghost.y + 100
-      };
-    } else if (ghost.type === 'furnace') {
-      return {
-        minX: ghost.x - 80,
-        maxX: ghost.x + 80,
-        minY: ghost.y - 80,
-        maxY: ghost.y + 80
-      };
-    } else if (ghost.type === 'miner') {
-      return {
-        minX: ghost.x - 80,
-        maxX: ghost.x + 80,
-        minY: ghost.y - 80,
-        maxY: ghost.y + 80
-      };
-    } else {
-      const def = customShapeDefs.find(d => d.id === ghost.type);
-      if (def) {
-        if (def.polygons && def.polygons.length > 0) {
-          const bounds = getPolygonsBounds(def.polygons);
-          return {
-            minX: ghost.x + bounds.minX,
-            maxX: ghost.x + bounds.maxX,
-            minY: ghost.y + bounds.minY,
-            maxY: ghost.y + bounds.maxY
-          };
-        } else if (def.points && def.points.length > 0) {
-          const startPt = def.points[0];
-          const bounds = getPointsBounds(def.points);
-          return {
-            minX: ghost.x + (bounds.minX - startPt.x),
-            maxX: ghost.x + (bounds.maxX - startPt.x),
-            minY: ghost.y + (bounds.minY - startPt.y),
-            maxY: ghost.y + (bounds.maxY - startPt.y)
-          };
-        }
-      }
+    const def = this.registry.resolve(ghost.type, customShapeDefs);
+    if (def) {
+      return def.ghostBounds(ghost.x, ghost.y);
     }
     return { minX: ghost.x - 40, maxX: ghost.x + 40, minY: ghost.y - 40, maxY: ghost.y + 40 };
   }

@@ -68,10 +68,7 @@ export class SpeedControls {
 
     // Listen to window key shortcuts (1, 2, 3, Space)
     window.addEventListener('keydown', (e) => {
-      // Ignore key shortcuts if a textbox or canvas drawing popup is open
-      const drawingBackdrop = parent.querySelector('.modal-backdrop') as HTMLElement;
-      if (drawingBackdrop && drawingBackdrop.style.display !== 'none') return;
-      
+      // Ignore key shortcuts if the ESC menu is open
       const escMenu = parent.querySelector('.esc-menu-backdrop') as HTMLElement;
       if (escMenu && escMenu.style.display !== 'none') return;
 

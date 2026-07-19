@@ -3,29 +3,36 @@ import { Building } from './Building.ts';
 import { CollisionCategories } from '../core/Constants.ts';
 import { Materials } from '../terrain/Materials.ts';
 import { MaterialType } from '../terrain/Materials.ts';
+import type { Graphics } from 'pixi.js';
 
 export class Crusher extends Building {
-  public jawAngle: number = 0; // For visual jaw animation
+  public static readonly WIDTH = 200;
+  public static readonly HEIGHT = 200;
+
+  private jawAngle: number = 0; // For visual jaw animation
   private animationTimer: number = 0;
 
   constructor(id: string, x: number, y: number) {
-    super(id, 'crusher', x, y, 200, 200); // 2m wide, 2m tall
+    super(id, 'crusher', x, y, Crusher.WIDTH, Crusher.HEIGHT); // 2m wide, 2m tall
   }
 
   public initPhysics(world: World): void {
-    // 1. Slanted funnel walls
-    const leftSlant = Bodies.rectangle(this.x - 60, this.y - 40, 130, 16, {
-      angle: Math.PI / 6, // 30 degrees slanted
-      friction: 0.1,
+    // 1. Slanted funnel walls — matched to the visual slab geometry:
+    //    113 wide, 20 thick, at 45°, centered at the visual centroid.
+    //    This leaves a ~26px physics gap (40px visual gap) for shards to
+    //    fall through into the sensor.
+    const leftSlant = Bodies.rectangle(this.x - 60, this.y - 30, 113, 20, {
+      angle: Math.PI / 4,
+      friction: 0.05,
       density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
       }
     });
 
-    const rightSlant = Bodies.rectangle(this.x + 60, this.y - 40, 130, 16, {
-      angle: -Math.PI / 6,
-      friction: 0.1,
+    const rightSlant = Bodies.rectangle(this.x + 60, this.y - 30, 113, 20, {
+      angle: -Math.PI / 4,
+      friction: 0.05,
       density: 0.015,
       collisionFilter: {
         category: CollisionCategories.BUILDINGS
@@ -169,5 +176,79 @@ export class Crusher extends Building {
       minY: py - this.height / 2,
       maxY: py + this.height / 2
     };
+  }
+
+  public draw(g: Graphics): void {
+    // 1. Slanted funnel walls
+    g.moveTo(-100, -80);
+    g.lineTo(-20, 0);
+    g.lineTo(-20, 20);
+    g.lineTo(-100, -60);
+    g.closePath();
+
+    g.moveTo(100, -80);
+    g.lineTo(20, 0);
+    g.lineTo(20, 20);
+    g.lineTo(100, -60);
+    g.closePath();
+
+    g.fill({ color: 0x42424F });
+    g.stroke({ color: 0x2A2A35, width: 3 });
+
+    // Outer Support/Gears
+    g.rect(-25, 40, 10, 60); // left chute guide
+    g.rect(15, 40, 10, 60);  // right chute guide
+    g.fill({ color: 0x2D2D38 });
+    g.stroke({ color: 0x1A1A24, width: 2 });
+
+    // Wobbling crusher jaws (animated by this.jawAngle)
+    const jawAngle = this.jawAngle;
+    const drawRotatedRect = (px: number, py: number, rWidth: number, rHeight: number, rAngle: number) => {
+      const cos = Math.cos(rAngle);
+      const sin = Math.sin(rAngle);
+      const halfW = rWidth / 2;
+
+      const pts = [
+        { x: -halfW, y: 0 },
+        { x: halfW, y: 0 },
+        { x: halfW, y: rHeight },
+        { x: -halfW, y: rHeight }
+      ].map(p => ({
+        x: px + p.x * cos - p.y * sin,
+        y: py + p.x * sin + p.y * cos
+      }));
+
+      g.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        g.lineTo(pts[i].x, pts[i].y);
+      }
+      g.closePath();
+      g.fill({ color: 0x8E251E }); // Rust red jaw
+      g.stroke({ color: 0x4D1410, width: 2 });
+    };
+
+    drawRotatedRect(-21, -10, 12, 45, jawAngle);
+    drawRotatedRect(21, -10, 12, 45, -jawAngle);
+  }
+
+  /**
+   * Draws a placement-preview outline (local space) in the given status color.
+   */
+  public static drawGhost(g: Graphics, color: number): void {
+    const w = Crusher.WIDTH;
+    const h = Crusher.HEIGHT;
+
+    g.rect(-w / 2, -h / 2, w, h);
+    g.fill({ color, alpha: 0.15 });
+    g.stroke({ color, width: 2, alpha: 0.6 });
+
+    g.moveTo(-w / 2, -h / 2 + 20);
+    g.lineTo(-20, 0);
+    g.lineTo(-25, h / 2 - 20);
+
+    g.moveTo(w / 2, -h / 2 + 20);
+    g.lineTo(20, 0);
+    g.lineTo(25, h / 2 - 20);
+    g.stroke({ color, width: 1.5, alpha: 0.4 });
   }
 }

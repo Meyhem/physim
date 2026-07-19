@@ -3,19 +3,19 @@ import { Renderer } from '../rendering/Renderer.ts';
 import { TerrainManager } from '../terrain/TerrainManager.ts';
 import { TerrainRenderer } from '../rendering/TerrainRenderer.ts';
 import { ShardRenderer } from '../rendering/ShardRenderer.ts';
-import { ParticleSystem } from '../rendering/ParticleSystem.ts';
 import { InputManager } from '../input/InputManager.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { WORLD_WIDTH } from './Constants.ts';
 import { Materials } from '../terrain/Materials.ts';
 import { BuildingManager } from '../buildings/BuildingManager.ts';
 import { BuildingRenderer } from '../rendering/BuildingRenderer.ts';
+import { BrushPreviewRenderer } from '../rendering/BrushPreviewRenderer.ts';
+import type { BrushPreviewState } from '../rendering/BrushPreviewRenderer.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 import { SaveManager } from '../save/SaveManager.ts';
 import { DragController } from '../input/DragController.ts';
 import { BrushController } from '../tools/BrushController.ts';
 import { BrushEditController } from '../tools/BrushEditController.ts';
-import type { BrushEditHover } from '../tools/BrushEditController.ts';
 import type { Point2D } from '../physics/PolygonUtils.ts';
 import { PlacementController } from '../buildings/PlacementController.ts';
 import { SaveLoadController } from '../save/SaveLoadController.ts';
@@ -27,7 +27,6 @@ export class Engine {
   private terrainManager!: TerrainManager;
   private terrainRenderer!: TerrainRenderer;
   private shardRenderer!: ShardRenderer;
-  private particleSystem!: ParticleSystem;
   private inputManager!: InputManager;
   private physicsWorld!: PhysicsWorld;
 
@@ -41,6 +40,7 @@ export class Engine {
   // Buildings & Unified Tools
   public buildingManager!: BuildingManager;
   private buildingRenderer!: BuildingRenderer;
+  private brushPreviewRenderer!: BrushPreviewRenderer;
 
   // Custom Shapes Definitions
   public customShapeDefs: CustomShapeDef[] = [];
@@ -66,7 +66,6 @@ export class Engine {
     this.initTerrain();
     this.initRenderHelpers();
     this.initBuildingSystem();
-    this.initTools();
     this.initSaveSystem();
     this.initCamera();
     this.initControllers();
@@ -106,15 +105,12 @@ export class Engine {
     this.terrainRenderer.update(this.terrainManager);
 
     this.shardRenderer = new ShardRenderer(this.renderer.shardsContainer);
-    this.particleSystem = new ParticleSystem(this.renderer.particlesContainer);
+    this.brushPreviewRenderer = new BrushPreviewRenderer(this.renderer.ghostContainer);
   }
 
   private initBuildingSystem(): void {
     this.buildingManager = new BuildingManager();
-    this.buildingRenderer = new BuildingRenderer(this.renderer.buildingsContainer, this);
-  }
-
-  private initTools(): void {
+    this.buildingRenderer = new BuildingRenderer(this.renderer.buildingsContainer);
   }
 
   private initSaveSystem(): void {
@@ -217,27 +213,7 @@ export class Engine {
     this.brushController.activeBrush = value;
   }
 
-  public get brushThickness(): number {
-    return this.brushController.brushThickness;
-  }
-
-  public get brushIsDrawing(): boolean {
-    return this.brushController.isDrawing;
-  }
-
-  public get brushLastPoint(): Point2D | null {
-    return this.brushController.lastPoint;
-  }
-
-  public get brushPipePath(): Point2D[] {
-    return this.brushController.getPathPoints();
-  }
-
-  public brushPreviewEnd: Point2D | null = null;
-
-  public get brushEditHover(): BrushEditHover | null {
-    return this.brushEditController ? this.brushEditController.getHover() : null;
-  }
+  private brushPreviewEnd: Point2D | null = null;
 
   // --- Placement delegation ---
 
@@ -318,7 +294,6 @@ export class Engine {
 
     this.updateToolSpecific(dt);
     this.stepPhysics(dt);
-    this.updateEffects(dt);
     this.updateBuildings(dt);
     this.refreshRenderData();
     this.saveLoadController.tickAutosave(dt);
@@ -433,10 +408,6 @@ export class Engine {
     }
   }
 
-  private updateEffects(dt: number): void {
-    this.particleSystem.update(dt);
-  }
-
   private updateBuildings(dt: number): void {
     this.buildingManager.update(dt, this.physicsWorld);
   }
@@ -445,6 +416,24 @@ export class Engine {
     this.terrainRenderer.update(this.terrainManager);
     this.shardRenderer.update(this.physicsWorld.getShardBodies());
     this.buildingRenderer.update(this.buildingManager, this.customShapeDefs);
+    this.refreshBrushPreview();
+  }
+
+  private refreshBrushPreview(): void {
+    if (this.activeTool !== 'brush') {
+      this.brushPreviewRenderer.clear();
+      return;
+    }
+    const state: BrushPreviewState = {
+      isDrawing: this.brushController.isDrawing,
+      lastPoint: this.brushController.lastPoint,
+      previewEnd: this.brushPreviewEnd,
+      fullPath: this.brushController.getPathPoints(),
+      activeBrush: this.brushController.activeBrush,
+      brushThickness: this.brushController.brushThickness,
+      editHover: this.brushEditController.getHover(),
+    };
+    this.brushPreviewRenderer.update(state);
   }
 
   private render(): void {

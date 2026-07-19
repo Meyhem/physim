@@ -1,8 +1,10 @@
 import { Engine } from '../core/Engine.ts';
+import { BuildingRegistry } from '../buildings/BuildingRegistry.ts';
 
 export class Toolbar {
   private container: HTMLDivElement;
   private engine: Engine;
+  private registry: BuildingRegistry = new BuildingRegistry();
 
   constructor(engine: Engine) {
     this.engine = engine;
@@ -22,17 +24,7 @@ export class Toolbar {
 
       <div class="toolbar-section separator">
         <h3 class="toolbar-title">BUILDINGS</h3>
-
-        <!-- Predefined Buildings -->
-        <button id="build-crusher" class="toolbar-btn" title="Drag to place a Crusher. Q/E to rotate.">
-          <span class="icon">⚙️</span> Crusher
-        </button>
-        <button id="build-furnace" class="toolbar-btn" title="Drag to place a Furnace. Q/E to rotate.">
-          <span class="icon">🔥</span> Furnace
-        </button>
-        <button id="build-miner" class="toolbar-btn" title="Drag to place a Miner. Mines the terrain it is mounted on. Q/E to rotate.">
-          <span class="icon">⛏️</span> Miner
-        </button>
+        <div id="buildings-list"></div>
       </div>
 
       <div class="toolbar-section separator">
@@ -62,11 +54,10 @@ export class Toolbar {
 
     parent.appendChild(this.container);
 
+    this.buildBuildingButtons();
+
     // Setup event listeners
     const grabBtn = this.container.querySelector('#tool-grab') as HTMLButtonElement;
-    const buildCrusherBtn = this.container.querySelector('#build-crusher') as HTMLButtonElement;
-    const buildFurnaceBtn = this.container.querySelector('#build-furnace') as HTMLButtonElement;
-    const buildMinerBtn = this.container.querySelector('#build-miner') as HTMLButtonElement;
 
     // Brush components
     const brushSolidBtn = this.container.querySelector('#brush-solid') as HTMLButtonElement;
@@ -101,26 +92,30 @@ export class Toolbar {
         this.setActiveBrush('pipe');
       }
     });
-
-    // Mousedown on buildings starts drag-and-hold placement
-    buildCrusherBtn.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      this.setActiveTool('grab'); // Reset tool state
-      this.engine.startPlacement('building', 'crusher');
-    });
-
-    buildFurnaceBtn.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      this.setActiveTool('grab');
-      this.engine.startPlacement('building', 'furnace');
-    });
-
-    buildMinerBtn.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      this.setActiveTool('grab');
-      this.engine.startPlacement('building', 'miner');
-    });
   }
+
+  /**
+   * Generate the building buttons from the registry so adding a new building
+   * type doesn't require editing this file.
+   */
+  private buildBuildingButtons(): void {
+    const list = this.container.querySelector('#buildings-list') as HTMLDivElement;
+    for (const def of this.registry.listStatic()) {
+      if (!def.toolbar) continue;
+      const btn = document.createElement('button');
+      btn.id = `build-${def.type}`;
+      btn.className = 'toolbar-btn';
+      btn.title = def.toolbar.tooltip;
+      btn.innerHTML = `<span class="icon">${def.toolbar.icon}</span> ${def.toolbar.label}`;
+      btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        this.setActiveTool('grab'); // Reset tool state
+        this.engine.startPlacement('building', def.type);
+      });
+      list.appendChild(btn);
+    }
+  }
+
   private setActiveBrush(brushType: 'solid' | 'conveyor' | 'pipe'): void {
     this.engine.setTool('brush');
     this.engine.activeBrush = brushType;

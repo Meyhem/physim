@@ -190,6 +190,29 @@ export class PhysicsWorld {
     return body;
   }
 
+  /**
+   * Creates a dynamic ingot body (rectangle) — the smelted product of a
+   * furnace. Registered as a shard so it participates in the same physics
+   * and cleanup pipeline.
+   */
+  public createIngotBody(x: number, y: number, materialType: string, density: number): Body {
+    const body = Bodies.rectangle(x, y, 36, 14, {
+      friction: 0.1,
+      restitution: 0.2,
+      density: density * 1.2,
+      collisionFilter: {
+        category: CollisionCategories.SHARDS,
+        mask: CollisionCategories.TERRAIN | CollisionCategories.SHARDS | CollisionCategories.TOOLS | CollisionCategories.BUILDINGS
+      }
+    });
+
+    body.label = `ingot:${materialType}`;
+
+    Composite.add(this.world, body);
+    this.shardBodies.add(body);
+    return body;
+  }
+
   public removeBody(body: Body): void {
     Composite.remove(this.world, body);
     this.shardBodies.delete(body);

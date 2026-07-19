@@ -4,9 +4,13 @@ import { CollisionCategories } from '../core/Constants.ts';
 import { Materials } from '../terrain/Materials.ts';
 import { MaterialType } from '../terrain/Materials.ts';
 import { TerrainManager } from '../terrain/TerrainManager.ts';
+import type { Graphics } from 'pixi.js';
 
 export class Miner extends Building {
-  public drillAngle: number = 0; // For spinning drill animation
+  public static readonly WIDTH = 160;
+  public static readonly HEIGHT = 160;
+
+  private drillAngle: number = 0; // For spinning drill animation
   private materialType: MaterialType;
   private terrainManager: TerrainManager;
   private timer: number = 0;
@@ -14,7 +18,7 @@ export class Miner extends Building {
   private readonly shaftLength: number = 120;
 
   constructor(id: string, x: number, y: number, terrainManager: TerrainManager, materialType?: MaterialType) {
-    super(id, 'miner', x, y, 160, 160); // 1.6m wide, 1.6m tall
+    super(id, 'miner', x, y, Miner.WIDTH, Miner.HEIGHT); // 1.6m wide, 1.6m tall
     this.terrainManager = terrainManager;
     this.materialType = materialType || MaterialType.DIRT;
   }
@@ -119,5 +123,56 @@ export class Miner extends Building {
       minY: py - this.height / 2,
       maxY: py + this.height / 2 + this.shaftLength
     };
+  }
+
+  public draw(g: Graphics): void {
+    // Main chassis (rests on terrain, top face ejects product)
+    g.rect(-60, -80, 120, 160);
+    g.fill({ color: 0x3A4A5A });
+    g.stroke({ color: 0x222B33, width: 3 });
+
+    // Top spout where shards are ejected
+    g.moveTo(-20, -80);
+    g.lineTo(-12, -100);
+    g.lineTo(12, -100);
+    g.lineTo(20, -80);
+    g.closePath();
+    g.fill({ color: 0x2C3845 });
+    g.stroke({ color: 0x222B33, width: 2 });
+
+    // Long downward shaft (drills into terrain, non-colliding)
+    g.rect(-8, 80, 16, 120);
+    g.fill({ color: 0x4A5A6A });
+    g.stroke({ color: 0x222B33, width: 2 });
+
+    // Spinning drill cone at the shaft tip (animated)
+    const drill = this.drillAngle;
+    const baseY = 200;
+    const wobble = Math.cos(drill) * 6;
+    g.moveTo(0, baseY);
+    g.lineTo(-18, baseY - 18 + wobble);
+    g.lineTo(18, baseY - 18 + wobble);
+    g.closePath();
+    g.fill({ color: 0xB0BEC5 });
+    g.stroke({ color: 0x607D8B, width: 1.5 });
+  }
+
+  /**
+   * Placement-preview outline (local space). Shares the box footprint preview
+   * with the Furnace.
+   */
+  public static drawGhost(g: Graphics, color: number): void {
+    const w = Miner.WIDTH;
+    const h = Miner.HEIGHT;
+
+    g.rect(-w / 2, -h / 2, w, h);
+    g.fill({ color, alpha: 0.15 });
+    g.stroke({ color, width: 2, alpha: 0.6 });
+
+    g.moveTo(-w / 2 + 35, -h / 2 + 20);
+    g.lineTo(-w / 2 + 35, h / 2 - 25);
+    g.lineTo(w / 2 - 35, h / 2 - 25);
+    g.lineTo(w / 2 - 35, -h / 2 + 20);
+    g.stroke({ color, width: 1.5, alpha: 0.4 });
   }
 }

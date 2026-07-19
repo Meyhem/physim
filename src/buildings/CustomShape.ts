@@ -3,6 +3,14 @@ import { Building } from './Building.ts';
 import { CollisionCategories } from '../core/Constants.ts';
 import { PolygonUtils } from '../physics/PolygonUtils.ts';
 import type { Point2D } from '../physics/PolygonUtils.ts';
+import type { Graphics } from 'pixi.js';
+
+/** Fill color for each brush type's drawn geometry. */
+export const BRUSH_COLORS: Record<'solid' | 'conveyor' | 'pipe', number> = {
+  solid: 0x7f8c8d,
+  pipe: 0x3498db,
+  conveyor: 0xf39c12,
+};
 
 export interface FlowSegment {
   poly: Point2D[]; // Relative to origin
@@ -350,5 +358,37 @@ export class CustomShape extends Building {
       minY: this.y + bounds.minY,
       maxY: this.y + bounds.maxY
     };
+  }
+
+  public draw(g: Graphics): void {
+    const strokeColor = BRUSH_COLORS[this.def.brushType];
+
+    // Render the simple source polygons straight from the def instead of
+    // iterating the triangulated physics parts — this avoids drawing every
+    // internal triangle edge as a visible seam.
+    for (const poly of this.def.polygons) {
+      if (poly.length < 2) continue;
+      g.moveTo(poly[0].x, poly[0].y);
+      for (let i = 1; i < poly.length; i++) {
+        g.lineTo(poly[i].x, poly[i].y);
+      }
+      g.closePath();
+    }
+    g.fill({ color: strokeColor });
+    g.stroke({ color: 0x111116, width: 1.5 });
+  }
+
+  /**
+   * Placement-preview outline (local space) for a not-yet-placed custom shape
+   * described by `def`. Strokes the first polygon at the def's brush thickness.
+   */
+  public static drawGhostForDef(g: Graphics, def: CustomShapeDef, color: number): void {
+    const pts = def.polygons[0] || [];
+    if (pts.length < 2) return;
+    g.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) {
+      g.lineTo(pts[i].x, pts[i].y);
+    }
+    g.stroke({ color, width: def.thickness, alpha: 0.6 });
   }
 }

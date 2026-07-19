@@ -61,7 +61,6 @@ export interface TerrainBlock {
   id: string;
   materialType: MaterialType;
   points: { x: number; y: number }[];
-  isFractured: boolean;
 }
 
 export class TerrainGenerator {
@@ -101,8 +100,7 @@ export class TerrainGenerator {
       blocks.push({
         id: `dirt_${col}`,
         materialType: MaterialType.DIRT,
-        points: dirtPoints,
-        isFractured: false
+        points: dirtPoints
       });
 
       // 3. Sandstone Layer (5m - 15m depth)
@@ -118,8 +116,7 @@ export class TerrainGenerator {
       blocks.push({
         id: `sandstone_${col}`,
         materialType: MaterialType.SANDSTONE,
-        points: sandstonePoints,
-        isFractured: false
+        points: sandstonePoints
       });
 
       // 4. Granite and Ore layers (from sandstone bottom to world bottom)
@@ -167,8 +164,7 @@ export class TerrainGenerator {
         blocks.push({
           id: `granite_col${col}_seg${s}`,
           materialType: mat,
-          points: segmentPoints,
-          isFractured: false
+          points: segmentPoints
         });
 
         currentLeft = nextLeft;

@@ -33,10 +33,6 @@ export class BrushController {
     this.onCustomShapesUpdated = onCustomShapesUpdated;
   }
 
-  public setOnCustomShapesUpdated(cb: (defs: CustomShapeDef[]) => void): void {
-    this.onCustomShapesUpdated = cb;
-  }
-
   /**
    * Begin a new path at the given world position.
    */

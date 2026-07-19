@@ -22,24 +22,10 @@ export class TerrainManager {
   }
 
   /**
-   * Removes a block (e.g. when it gets fractured or fully destroyed)
+   * Replaces the entire block set (used by save loading).
    */
-  public removeBlock(id: string): void {
-    this.blocks = this.blocks.filter(b => b.id !== id);
-  }
-
-  /**
-   * Adds a new block (e.g., if we create static terrain or replace blocks)
-   */
-  public addBlock(block: TerrainBlock): void {
-    this.blocks.push(block);
-  }
-
-  /**
-   * Gets a block by id
-   */
-  public getBlock(id: string): TerrainBlock | undefined {
-    return this.blocks.find(b => b.id === id);
+  public setBlocks(blocks: TerrainBlock[]): void {
+    this.blocks = blocks;
   }
 
   /**
