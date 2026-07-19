@@ -92,7 +92,7 @@ export class Miner extends Building {
 
     // Spawn just above the top face of the miner
     const dx = (Math.random() - 0.5) * 10;
-    const dy = this.height / 2 + 12;
+    const dy = -(this.height / 2 + 12);
     const ox = px + dx * cos - dy * sin;
     const oy = py + dx * sin + dy * cos;
 
