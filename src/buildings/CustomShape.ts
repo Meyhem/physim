@@ -163,43 +163,18 @@ export class CustomShape extends Building {
 
     Body.setStatic(compound, true);
     Body.setAngle(compound, this.angle);
+    // Force the compound's reference position to match this.x/y without
+    // translating the part vertices (which are already in the correct world
+    // positions). This keeps `body.position` stable across rebuilds so that
+    // path-edit drag math (which uses startVertices relative to this.x/y)
+    // does not drift.
+    Body.setCentre(compound, { x: this.x, y: this.y }, false);
 
     this.bodies = [compound];
     Composite.add(world, compound);
 
-    // Re-center the def around the compound's actual position so that the
-    // polygons / path / segments are always expressed relative to the body's
-    // position. This keeps rendering (which uses body.position) and physics
-    // perfectly aligned, even after a path edit rebuilds the body.
-    const shiftX = compound.position.x - this.x;
-    const shiftY = compound.position.y - this.y;
-    if (Math.abs(shiftX) > 0.001 || Math.abs(shiftY) > 0.001) {
-      this.x = compound.position.x;
-      this.y = compound.position.y;
-      this.def.polygons = this.def.polygons.map(poly =>
-        poly.map(p => ({ x: p.x - shiftX, y: p.y - shiftY })),
-      );
-      if (this.def.conveyorSegments) {
-        this.def.conveyorSegments = this.def.conveyorSegments.map(s => ({
-          ...s,
-          poly: s.poly.map(p => ({ x: p.x - shiftX, y: p.y - shiftY })),
-        }));
-      }
-      if (this.def.flowSegments) {
-        this.def.flowSegments = this.def.flowSegments.map(s => ({
-          ...s,
-          poly: s.poly.map(p => ({ x: p.x - shiftX, y: p.y - shiftY })),
-          mouth: s.mouth ? { x: s.mouth.x - shiftX, y: s.mouth.y - shiftY } : undefined,
-        }));
-      }
-      if (this.def.path) {
-        this.def.path = this.def.path.map(p => ({ x: p.x - shiftX, y: p.y - shiftY }));
-      }
-    }
-
-    // Compute active relative segments. Because the def has just been re-centered
-    // to be relative to the compound's position, the conveyor/flow segments can
-    // be used directly.
+    // Conveyor/flow segments are stored relative to this.x/y, which now equals
+    // body.position, so they can be used directly.
     const segments = (this.def.conveyorSegments || this.def.flowSegments || []) as FlowSegment[];
     this.relativeSegments = segments.map(seg => ({
       poly: seg.poly.map(p => ({ x: p.x, y: p.y })),
@@ -218,13 +193,18 @@ export class CustomShape extends Building {
     if (!this.def.path || this.def.path.length < 2) return;
     const thickness = this.def.thickness;
 
-    const newPolys = PolygonUtils.pathToPolygons(this.def.path, thickness);
-    if (newPolys.length === 0) return;
-
-    this.def.polygons = newPolys;
-
-    if (this.def.brushType === 'conveyor') {
-      this.def.conveyorSegments = PolygonUtils.buildConveyorSegmentsFromPath(this.def.path, thickness);
+    if (this.def.brushType === 'pipe') {
+      const { wallPolys, flowSegments } = PolygonUtils.buildPipeFromPath(this.def.path, thickness);
+      if (wallPolys.length === 0) return;
+      this.def.polygons = wallPolys;
+      this.def.flowSegments = flowSegments;
+    } else {
+      const newPolys = PolygonUtils.pathToPolygons(this.def.path, thickness);
+      if (newPolys.length === 0) return;
+      this.def.polygons = newPolys;
+      if (this.def.brushType === 'conveyor') {
+        this.def.conveyorSegments = PolygonUtils.buildConveyorSegmentsFromPath(this.def.path, thickness);
+      }
     }
 
     // Recompute bounds (width/height) for the new geometry.
@@ -232,8 +212,9 @@ export class CustomShape extends Building {
     this.width = bounds.width;
     this.height = bounds.height;
 
-    // Dispose of the old body and build a fresh one. initPhysics will re-center
-    // the def around the new compound position.
+    // Dispose of the old body and build a fresh one. initPhysics uses
+    // Body.setCentre to keep body.position pinned to this.x/y, so the def's
+    // relative coordinates remain valid across rebuilds.
     this.destroyPhysics(world);
     this.initPhysics(world);
   }

@@ -151,7 +151,7 @@ export class BrushEditController {
         const bodies = b.getBodies();
         return bodies.some(bod => bod === hit || bod.parts.includes(hit));
       }) as CustomShape | undefined;
-      if (shape && shape.def.path && shape.def.brushType !== 'pipe') {
+      if (shape && shape.def.path) {
         target = shape;
         break;
       }

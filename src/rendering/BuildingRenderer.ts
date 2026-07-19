@@ -228,11 +228,12 @@ export class BuildingRenderer {
           : brushType === 'pipe' ? 0x3498db
           : 0xf39c12;
 
-        // For the pipe, preview the whole in-progress path so the user can see
-        // what they are drawing; other brushes just preview the next segment.
-        const pipePath = brushType === 'pipe' ? this.engine.brushPipePath : null;
+        // Preview the whole in-progress path (all placed clicks + cursor)
+        // for every brush type, so the user sees the full polyline they are
+        // building, not just the next segment.
+        const fullPath = this.engine.brushPipePath;
         const pathPoints: { x: number; y: number }[] =
-          pipePath && pipePath.length > 0 ? [...pipePath, previewEnd] : [lastPoint, previewEnd];
+          fullPath && fullPath.length > 0 ? [...fullPath, previewEnd] : [lastPoint, previewEnd];
 
         const drawPath = (width: number, alpha: number) => {
           this.ghostGraphics.moveTo(pathPoints[0].x, pathPoints[0].y);

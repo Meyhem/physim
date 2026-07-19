@@ -256,7 +256,7 @@ export class BrushController {
       thickness: this.brushThickness,
       conveyorSegments: brushType === 'conveyor' ? relativeFlowSegments : undefined,
       flowSegments: brushType === 'pipe' ? relativeFlowSegments : undefined,
-      path: brushType === 'solid' || brushType === 'conveyor' ? relativePath : undefined,
+      path: relativePath,
     };
 
     this.customShapeDefs.push(def);

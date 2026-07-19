@@ -739,6 +739,50 @@ export class PolygonUtils {
   }
 
   /**
+   * Builds pipe geometry (wall polygons + interior flow segments) from a
+   * centerline path. Used both at initial brush creation and on path edit
+   * rebuild. Coordinates are returned in the same frame as the input path.
+   */
+  public static buildPipeFromPath(
+    path: Point2D[],
+    thickness: number,
+  ): {
+    wallPolys: Point2D[][];
+    flowSegments: { poly: Point2D[]; dir: Point2D; isIntake: boolean; mouth: Point2D }[];
+  } {
+    if (path.length < 2) return { wallPolys: [], flowSegments: [] };
+
+    const half = thickness / 2;
+    const wallThickness = Math.max(4, thickness * 0.2);
+    const innerHalf = half - wallThickness;
+
+    const outerLeft = this.offsetPolyline(path, half, false);
+    const innerLeft = this.offsetPolyline(path, innerHalf, true);
+    const outerRight = this.offsetPolyline(path, -half, false);
+    const innerRight = this.offsetPolyline(path, -innerHalf, true);
+
+    const leftWall = [...outerLeft, ...innerLeft.slice().reverse()];
+    const rightWall = [...outerRight, ...innerRight.slice().reverse()];
+
+    const wallPolys = [leftWall, rightWall].filter(p => this.getArea(p) > 5);
+
+    const flowSegments: { poly: Point2D[]; dir: Point2D; isIntake: boolean; mouth: Point2D }[] = [];
+    const mouth = { x: path[0].x, y: path[0].y };
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i];
+      const b = path[i + 1];
+      const tube = this.getSegmentTube(a, b, thickness, wallThickness, half);
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      const dir = len > 0.001 ? { x: dx / len, y: dy / len } : { x: 1, y: 0 };
+      flowSegments.push({ poly: tube.channel, dir, isIntake: i === 0, mouth });
+    }
+
+    return { wallPolys, flowSegments };
+  }
+
+  /**
    * Builds one conveyor flow-segment per path segment: a rectangle the size of
    * the segment plus the unit direction along it. Coordinates are returned in
    * the same frame as the input path (callers convert to relative as needed).
