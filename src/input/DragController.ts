@@ -15,6 +15,10 @@ export class DragController {
   private draggingShard: Body | null = null;
   private dragOffset: { x: number; y: number } = { x: 0, y: 0 };
 
+  // When set, RMB presses are ignored entirely (the brush-edit controller owns
+  // RMB in brush mode). The engine toggles this when entering/leaving brush.
+  public rightClickSuppressed: boolean = false;
+
   constructor(
     camera: Camera,
     inputManager: InputManager,
@@ -42,6 +46,8 @@ export class DragController {
   }
 
   private handleRightDown(screenX: number, screenY: number): void {
+    if (this.rightClickSuppressed) return;
+
     const worldPos = this.camera.screenToWorld(screenX, screenY);
 
     if (this.tryDragBuilding(worldPos)) return;
@@ -106,8 +112,7 @@ export class DragController {
     if (this.draggingBuilding) {
       const body = this.draggingBuilding.getBody();
       if (body) {
-        const isCustom = body.label.startsWith('custom:');
-        Body.setStatic(body, isCustom);
+        Body.setStatic(body, true);
         this.draggingBuilding.x = body.position.x;
         this.draggingBuilding.y = body.position.y;
         this.draggingBuilding.angle = body.angle;

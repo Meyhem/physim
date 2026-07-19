@@ -2,16 +2,16 @@ import { TerrainManager } from '../terrain/TerrainManager.ts';
 import { BuildingManager } from '../buildings/BuildingManager.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { CustomShape } from '../buildings/CustomShape.ts';
-import type { CustomShapeDef } from '../buildings/CustomShape.ts';
+import type { CustomShapeDef, FlowSegment } from '../buildings/CustomShape.ts';
 import { PolygonUtils } from '../physics/PolygonUtils.ts';
 import type { Point2D } from '../physics/PolygonUtils.ts';
 
 export class BrushController {
-  public activeBrush: 'solid' | 'conveyor' | null = null;
+  public activeBrush: 'solid' | 'conveyor' | 'pipe' | null = null;
   public brushThickness: number = 40;
   public isDrawing: boolean = false;
-  public firstPoint: Point2D | null = null;
   public lastPoint: Point2D | null = null;
+  private pathPoints: Point2D[] = [];
 
   private terrainManager: TerrainManager;
   private buildingManager: BuildingManager;
@@ -42,109 +42,171 @@ export class BrushController {
    */
   public startPath(worldPos: Point2D): void {
     this.isDrawing = true;
-    this.firstPoint = { x: worldPos.x, y: worldPos.y };
     this.lastPoint = { x: worldPos.x, y: worldPos.y };
+    this.pathPoints = [{ x: worldPos.x, y: worldPos.y }];
   }
 
   /**
-   * Place a segment from lastPoint to worldPos, creating a shape immediately.
+   * Append a vertex to the current path. For solid/conveyor, the path is
+   * accumulated and built into a single CustomShape on finishPath; for pipe,
+   * the legacy whole-tube build is used.
    */
   public placeSegment(worldPos: Point2D): void {
     if (!this.lastPoint) return;
 
-    const p1 = this.lastPoint;
-    const p2 = worldPos;
-
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 2) return; // Too short, ignore
-
-    // Generate segment rectangle + joint circle to fill gaps at corners
-    const segRect = PolygonUtils.getSegmentRectangle(p1, p2, this.brushThickness);
-    const jointCircle = PolygonUtils.getCirclePolygon(p1, this.brushThickness / 2);
-
-    // Union the segment rect with the joint circle for a seamless connection
-    const segPolys = PolygonUtils.unionList([segRect, jointCircle]);
-
-    // Clip against terrain
-    let clippedPolys = segPolys;
-    const terrainBlocks = this.terrainManager.getBlocks();
-    for (const block of terrainBlocks) {
-      const tempClipped: Point2D[][] = [];
-      for (const poly of clippedPolys) {
-        const diff = PolygonUtils.difference(poly, block.points);
-        tempClipped.push(...diff);
-      }
-      clippedPolys = tempClipped;
+    const last = this.pathPoints[this.pathPoints.length - 1];
+    const d = Math.hypot(worldPos.x - last.x, worldPos.y - last.y);
+    if (d >= 2) {
+      this.pathPoints.push({ x: worldPos.x, y: worldPos.y });
     }
-    clippedPolys = clippedPolys.filter(poly => PolygonUtils.getArea(poly) > 10);
-
-    if (clippedPolys.length === 0) {
-      // Segment is entirely inside terrain, still advance lastPoint
-      this.lastPoint = { x: worldPos.x, y: worldPos.y };
-      return;
-    }
-
-    // Generate conveyor segments if applicable
-    const conveyorSegments = this.generateConveyorSegmentsForRect(p1, p2, segRect);
-
-    // Create the custom shape (each segment overlays existing ones; no merge)
-    this.createCustomShape(clippedPolys, conveyorSegments);
-
-    // Advance lastPoint
     this.lastPoint = { x: worldPos.x, y: worldPos.y };
   }
 
   /**
-   * Finish the current path.
+   * Finish the current path: build one CustomShape from the accumulated
+   * path (solid/conveyor) or one continuous pipe tube.
    */
   public finishPath(): void {
+    if (this.activeBrush === 'pipe') {
+      this.buildPipePath();
+    } else if (this.activeBrush === 'solid' || this.activeBrush === 'conveyor') {
+      this.buildSolidConveyorPath();
+    }
     this.isDrawing = false;
-    this.firstPoint = null;
     this.lastPoint = null;
+    this.pathPoints = [];
   }
 
   /**
-   * Cancel the current path (segments already placed remain).
+   * Cancel the current path (any segments already placed remain).
    */
   public cancelPath(): void {
     this.isDrawing = false;
-    this.firstPoint = null;
     this.lastPoint = null;
+    this.pathPoints = [];
+  }
+
+  public getPathPoints(): Point2D[] {
+    return this.pathPoints;
   }
 
   // --- Private helpers ---
 
-  private generateConveyorSegmentsForRect(
-    p1: Point2D,
-    p2: Point2D,
-    segRect: Point2D[],
-  ): { poly: Point2D[]; dir: Point2D }[] {
-    if (this.activeBrush !== 'conveyor') return [];
+  /**
+   * Builds one CustomShape from the accumulated solid/conveyor path: unions
+   * the per-segment rectangles + joint circles into a single polygon (or a
+   * small set of polygons when terrain cuts it), then stores the user path
+   * alongside so it can be edited later.
+   */
+  private buildSolidConveyorPath(): void {
+    const pts = this.pathPoints;
+    if (pts.length < 2) return;
 
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    if (len < 0.001) return [];
-
-    const dir = { x: dx / len, y: dy / len };
-
-    let clippedSegs = [segRect];
+    const thickness = this.brushThickness;
     const terrainBlocks = this.terrainManager.getBlocks();
-    for (const block of terrainBlocks) {
-      clippedSegs = clippedSegs.flatMap(poly =>
-        PolygonUtils.difference(poly, block.points),
-      );
-    }
-    clippedSegs = clippedSegs.filter(poly => PolygonUtils.getArea(poly) > 5);
 
-    return clippedSegs.map(poly => ({ poly, dir }));
+    // 1. Build the world-space tube polygon (rect + joint circles, unioned).
+    let polys = PolygonUtils.pathToPolygons(pts, thickness);
+    polys = this.clipAgainstTerrain(polys, terrainBlocks);
+    polys = polys.filter(poly => PolygonUtils.getArea(poly) > 5);
+    if (polys.length === 0) return;
+
+    // 2. Build per-segment conveyor flow regions (world coords).
+    let flowSegments: FlowSegment[] = [];
+    if (this.activeBrush === 'conveyor') {
+      const segs = PolygonUtils.buildConveyorSegmentsFromPath(pts, thickness);
+      for (const seg of segs) {
+        let clipped = [seg.poly];
+        for (const block of terrainBlocks) {
+          clipped = clipped.flatMap(p => PolygonUtils.difference(p, block.points));
+        }
+        for (const poly of clipped) {
+          if (PolygonUtils.getArea(poly) > 5) {
+            flowSegments.push({ poly, dir: seg.dir });
+          }
+        }
+      }
+      if (flowSegments.length === 0) return;
+    }
+
+    this.createCustomShape(polys, flowSegments, pts);
+  }
+
+  /**
+   * Builds one continuous pipe from the accumulated path: two wall bands
+   * (offset centerlines stroked with a small thickness) plus interior-channel
+   * flow segments for the suction/propulsion forces.
+   */
+  private buildPipePath(): void {
+    const pts = this.pathPoints;
+    if (pts.length < 2) return;
+
+    const thickness = this.brushThickness;
+    const half = thickness / 2;
+    const wallThickness = Math.max(4, thickness * 0.2);
+    const innerHalf = half - wallThickness;
+    const terrainBlocks = this.terrainManager.getBlocks();
+
+    // Build the whole pipe as ONE shape from two continuous wall ribbons:
+    // offset the centerline to the inner/outer edges on each side. The inner
+    // edge is clamped so bends never spike into the channel (obstruction-free),
+    // while the outer edge stays smooth so the tube is sealed and connected.
+    const outerLeft = PolygonUtils.offsetPolyline(pts, half, false);
+    const innerLeft = PolygonUtils.offsetPolyline(pts, innerHalf, true);
+    const outerRight = PolygonUtils.offsetPolyline(pts, -half, false);
+    const innerRight = PolygonUtils.offsetPolyline(pts, -innerHalf, true);
+
+    const leftWall = [...outerLeft, ...innerLeft.slice().reverse()];
+    const rightWall = [...outerRight, ...innerRight.slice().reverse()];
+
+    let wallPolys = this.clipAgainstTerrain([leftWall, rightWall], terrainBlocks);
+    wallPolys = wallPolys.filter(poly => PolygonUtils.getArea(poly) > 5);
+    if (wallPolys.length === 0) return;
+
+    // Interior channel (force region), one segment per original path segment.
+    const flowSegments: FlowSegment[] = [];
+    const mouth = { x: pts[0].x, y: pts[0].y };
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const tube = PolygonUtils.getSegmentTube(a, b, thickness, wallThickness, half);
+
+      let channels = [tube.channel];
+      channels = this.clipAgainstTerrain(channels, terrainBlocks);
+      channels = channels.filter(poly => PolygonUtils.getArea(poly) > 5);
+
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      const dir = len > 0.001 ? { x: dx / len, y: dy / len } : { x: 1, y: 0 };
+      const isIntake = i === 0;
+
+      for (const ch of channels) {
+        flowSegments.push({ poly: ch, dir, isIntake, mouth });
+      }
+    }
+
+    if (flowSegments.length === 0) return;
+
+    this.createCustomShape(wallPolys, flowSegments, pts);
+  }
+
+  private clipAgainstTerrain(polys: Point2D[][], terrainBlocks: { points: Point2D[] }[]): Point2D[][] {
+    let result: Point2D[][] = [];
+    for (const poly of polys) {
+      let clipped = [poly];
+      for (const block of terrainBlocks) {
+        clipped = clipped.flatMap(p => PolygonUtils.difference(p, block.points));
+      }
+      result.push(...clipped);
+    }
+    return result;
   }
 
   private createCustomShape(
     finalWorldPolys: Point2D[][],
-    finalWorldConveyorSegments: { poly: Point2D[]; dir: Point2D }[],
+    finalWorldFlowSegments: FlowSegment[],
+    finalWorldPath: Point2D[],
   ): void {
     const allVertices = finalWorldPolys.flat();
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -166,24 +228,35 @@ export class BrushController {
       })),
     );
 
-    const relativeConveyorSegments = finalWorldConveyorSegments.map(seg => ({
+    const relativeFlowSegments = finalWorldFlowSegments.map(seg => ({
       poly: seg.poly.map((p: Point2D) => ({
         x: p.x - finalCentroid.x,
         y: p.y - finalCentroid.y,
       })),
       dir: seg.dir,
+      isIntake: seg.isIntake,
+      mouth: seg.mouth
+        ? { x: seg.mouth.x - finalCentroid.x, y: seg.mouth.y - finalCentroid.y }
+        : undefined,
+    }));
+
+    const relativePath = finalWorldPath.map(p => ({
+      x: p.x - finalCentroid.x,
+      y: p.y - finalCentroid.y,
     }));
 
     const brushType = this.activeBrush!;
     const defId = `custom_${brushType}_${Date.now()}`;
-    const defName = `${brushType === 'solid' ? 'Solid Wall' : 'Conveyor'} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const defName = `${brushType === 'solid' ? 'Solid Wall' : brushType === 'conveyor' ? 'Conveyor' : 'Pipe'} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     const def: CustomShapeDef = {
       id: defId,
       name: defName,
       polygons: relativePolys,
       brushType,
       thickness: this.brushThickness,
-      conveyorSegments: relativeConveyorSegments,
+      conveyorSegments: brushType === 'conveyor' ? relativeFlowSegments : undefined,
+      flowSegments: brushType === 'pipe' ? relativeFlowSegments : undefined,
+      path: brushType === 'solid' || brushType === 'conveyor' ? relativePath : undefined,
     };
 
     this.customShapeDefs.push(def);

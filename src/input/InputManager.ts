@@ -8,6 +8,10 @@ export class InputManager {
   public isRightDown: boolean = false;
   public isMiddleDown: boolean = false;
 
+  // Modifier-key states (sampled on every event)
+  public ctrlDown: boolean = false;
+  public shiftDown: boolean = false;
+
 
   // Event callbacks
   private onPanCallback?: (dx: number, dy: number) => void;
@@ -25,6 +29,8 @@ export class InputManager {
 
     // Mouse position
     canvasElement.addEventListener('mousemove', (e) => {
+      this.ctrlDown = e.ctrlKey || e.metaKey;
+      this.shiftDown = e.shiftKey;
       const rect = canvasElement.getBoundingClientRect();
       const newX = e.clientX - rect.left;
       const newY = e.clientY - rect.top;
@@ -50,8 +56,10 @@ export class InputManager {
     });
 
   // Mouse buttons
-  canvasElement.addEventListener('mousedown', (e) => {
-    if (e.button === 0) this.isLeftDown = true;
+    canvasElement.addEventListener('mousedown', (e) => {
+      this.ctrlDown = e.ctrlKey || e.metaKey;
+      this.shiftDown = e.shiftKey;
+      if (e.button === 0) this.isLeftDown = true;
     if (e.button === 2) {
       this.isRightDown = true;
       e.preventDefault(); // Prevent context menu
@@ -66,6 +74,8 @@ export class InputManager {
   });
 
     window.addEventListener('mouseup', (e) => {
+      this.ctrlDown = e.ctrlKey || e.metaKey;
+      this.shiftDown = e.shiftKey;
       if (e.button === 0) this.isLeftDown = false;
       if (e.button === 2) {
         this.isRightDown = false;

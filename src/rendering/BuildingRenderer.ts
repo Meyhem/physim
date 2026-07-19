@@ -61,7 +61,7 @@ export class BuildingRenderer {
     if (body) {
       graphics.x = body.position.x;
       graphics.y = body.position.y;
-      graphics.rotation = (building instanceof CustomShape) ? 0 : body.angle;
+      graphics.rotation = body.angle;
     } else {
       graphics.x = building.x;
       graphics.y = building.y;
@@ -186,18 +186,21 @@ export class BuildingRenderer {
     } else if (building instanceof CustomShape) {
       const body = building.getBody();
       if (body) {
-        const parts = body.parts.slice(1); // Skip parts[0] (compound convex hull)
-        const strokeColor = building.def.brushType === 'solid' ? 0x7f8c8d : 0xf39c12;
+        const strokeColor =
+          building.def.brushType === 'solid' ? 0x7f8c8d
+          : building.def.brushType === 'pipe' ? 0x3498db
+          : 0xf39c12;
 
-        for (const part of parts) {
-          const vertices = part.vertices;
-          if (vertices.length > 0) {
-            graphics.moveTo(vertices[0].x - body.position.x, vertices[0].y - body.position.y);
-            for (let i = 1; i < vertices.length; i++) {
-              graphics.lineTo(vertices[i].x - body.position.x, vertices[i].y - body.position.y);
-            }
-            graphics.closePath();
+        // Render the simple source polygons straight from the def instead of
+        // iterating the triangulated physics parts — this avoids drawing every
+        // internal triangle edge as a visible seam.
+        for (const poly of building.def.polygons) {
+          if (poly.length < 2) continue;
+          graphics.moveTo(poly[0].x, poly[0].y);
+          for (let i = 1; i < poly.length; i++) {
+            graphics.lineTo(poly[i].x, poly[i].y);
           }
+          graphics.closePath();
         }
         graphics.fill({ color: strokeColor });
         graphics.stroke({ color: 0x111116, width: 1.5 });
@@ -220,26 +223,40 @@ export class BuildingRenderer {
         this.ghostGraphics.y = 0;
         this.ghostGraphics.rotation = 0;
 
-        const strokeColor = brushType === 'solid' ? 0x7f8c8d : 0xf39c12;
+        const strokeColor =
+          brushType === 'solid' ? 0x7f8c8d
+          : brushType === 'pipe' ? 0x3498db
+          : 0xf39c12;
 
-        // Translucent outline
-        this.ghostGraphics.moveTo(lastPoint.x, lastPoint.y);
-        this.ghostGraphics.lineTo(previewEnd.x, previewEnd.y);
-        this.ghostGraphics.stroke({ color: strokeColor, width: thickness, alpha: 0.4, cap: 'round' });
+        // For the pipe, preview the whole in-progress path so the user can see
+        // what they are drawing; other brushes just preview the next segment.
+        const pipePath = brushType === 'pipe' ? this.engine.brushPipePath : null;
+        const pathPoints: { x: number; y: number }[] =
+          pipePath && pipePath.length > 0 ? [...pipePath, previewEnd] : [lastPoint, previewEnd];
 
-        // Core line
-        this.ghostGraphics.moveTo(lastPoint.x, lastPoint.y);
-        this.ghostGraphics.lineTo(previewEnd.x, previewEnd.y);
-        this.ghostGraphics.stroke({ color: strokeColor, width: 2, alpha: 0.8, cap: 'round' });
+        const drawPath = (width: number, alpha: number) => {
+          this.ghostGraphics.moveTo(pathPoints[0].x, pathPoints[0].y);
+          for (let i = 1; i < pathPoints.length; i++) {
+            this.ghostGraphics.lineTo(pathPoints[i].x, pathPoints[i].y);
+          }
+          this.ghostGraphics.stroke({ color: strokeColor, width, alpha, cap: 'round', join: 'round' });
+        };
 
-        // Conveyor direction arrow
-        if (brushType === 'conveyor') {
-          const dx = previewEnd.x - lastPoint.x;
-          const dy = previewEnd.y - lastPoint.y;
+        // Translucent outline + core line
+        drawPath(thickness, 0.35);
+        drawPath(2, 0.9);
+
+        // Direction arrow for conveyor & pipe (directional brushes): place it on
+        // the last segment being drawn.
+        if (brushType === 'conveyor' || brushType === 'pipe') {
+          const from = pathPoints[pathPoints.length - 2];
+          const to = pathPoints[pathPoints.length - 1];
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
           const len = Math.sqrt(dx * dx + dy * dy);
           if (len > 10) {
-            const midX = (lastPoint.x + previewEnd.x) / 2;
-            const midY = (lastPoint.y + previewEnd.y) / 2;
+            const midX = (from.x + to.x) / 2;
+            const midY = (from.y + to.y) / 2;
             const segmentAngle = Math.atan2(dy, dx);
             const cosA = Math.cos(segmentAngle);
             const sinA = Math.sin(segmentAngle);
@@ -259,49 +276,95 @@ export class BuildingRenderer {
 
     // 2. Otherwise, draw standard building ghost
     const ghost = buildingManager.getGhost();
-    if (!ghost) return;
+    if (ghost) {
+      this.ghostGraphics.x = ghost.x;
+      this.ghostGraphics.y = ghost.y;
+      this.ghostGraphics.rotation = ghost.angle;
 
-    this.ghostGraphics.x = ghost.x;
-    this.ghostGraphics.y = ghost.y;
-    this.ghostGraphics.rotation = ghost.angle;
+      const isValid = buildingManager.getGhostValidity();
+      const color = isValid ? 0x2ecc71 : 0xe74c3c;
 
-    const isValid = buildingManager.getGhostValidity();
-    const color = isValid ? 0x2ecc71 : 0xe74c3c;
+      if (ghost.type === 'crusher' || ghost.type === 'furnace' || ghost.type === 'miner') {
+        const w = ghost.type === 'crusher' ? 200 : 160;
+        const h = ghost.type === 'crusher' ? 200 : 160;
 
-    if (ghost.type === 'crusher' || ghost.type === 'furnace' || ghost.type === 'miner') {
-      const w = ghost.type === 'crusher' ? 200 : 160;
-      const h = ghost.type === 'crusher' ? 200 : 160;
+        this.ghostGraphics.rect(-w / 2, -h / 2, w, h);
+        this.ghostGraphics.fill({ color, alpha: 0.15 });
+        this.ghostGraphics.stroke({ color, width: 2, alpha: 0.6 });
 
-      this.ghostGraphics.rect(-w / 2, -h / 2, w, h);
-      this.ghostGraphics.fill({ color, alpha: 0.15 });
-      this.ghostGraphics.stroke({ color, width: 2, alpha: 0.6 });
+        if (ghost.type === 'crusher') {
+          this.ghostGraphics.moveTo(-w / 2, -h / 2 + 20);
+          this.ghostGraphics.lineTo(-20, 0);
+          this.ghostGraphics.lineTo(-25, h / 2 - 20);
 
-      if (ghost.type === 'crusher') {
-        this.ghostGraphics.moveTo(-w / 2, -h / 2 + 20);
-        this.ghostGraphics.lineTo(-20, 0);
-        this.ghostGraphics.lineTo(-25, h / 2 - 20);
-
-        this.ghostGraphics.moveTo(w / 2, -h / 2 + 20);
-        this.ghostGraphics.lineTo(20, 0);
-        this.ghostGraphics.lineTo(25, h / 2 - 20);
-        this.ghostGraphics.stroke({ color, width: 1.5, alpha: 0.4 });
-      } else {
-        this.ghostGraphics.moveTo(-w / 2 + 35, -h / 2 + 20);
-        this.ghostGraphics.lineTo(-w / 2 + 35, h / 2 - 25);
-        this.ghostGraphics.lineTo(w / 2 - 35, h / 2 - 25);
-        this.ghostGraphics.lineTo(w / 2 - 35, -h / 2 + 20);
-        this.ghostGraphics.stroke({ color, width: 1.5, alpha: 0.4 });
-      }
-    } else {
-      const def = customShapeDefs.find(d => d.id === ghost.type);
-      if (def) {
-        const pts = def.polygons[0] || [];
-        if (pts.length < 2) return;
-        this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-          this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
+          this.ghostGraphics.moveTo(w / 2, -h / 2 + 20);
+          this.ghostGraphics.lineTo(20, 0);
+          this.ghostGraphics.lineTo(25, h / 2 - 20);
+          this.ghostGraphics.stroke({ color, width: 1.5, alpha: 0.4 });
+        } else {
+          this.ghostGraphics.moveTo(-w / 2 + 35, -h / 2 + 20);
+          this.ghostGraphics.lineTo(-w / 2 + 35, h / 2 - 25);
+          this.ghostGraphics.lineTo(w / 2 - 35, h / 2 - 25);
+          this.ghostGraphics.lineTo(w / 2 - 35, -h / 2 + 20);
+          this.ghostGraphics.stroke({ color, width: 1.5, alpha: 0.4 });
         }
-        this.ghostGraphics.stroke({ color, width: def.thickness, alpha: 0.6 });
+      } else {
+        const def = customShapeDefs.find(d => d.id === ghost.type);
+        if (def) {
+          const pts = def.polygons[0] || [];
+          if (pts.length < 2) return;
+          this.ghostGraphics.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            this.ghostGraphics.lineTo(pts[i].x, pts[i].y);
+          }
+          this.ghostGraphics.stroke({ color, width: def.thickness, alpha: 0.6 });
+        }
+      }
+      return;
+    }
+
+    // 3. No active placement: in brush tool, draw ghost-circle hover indicators
+    //    over the editable path of the brushed shape under the cursor.
+    if (this.engine.activeTool === 'brush' && this.engine.brushEditHover) {
+      this.drawBrushEditHover(this.engine.brushEditHover);
+    }
+  }
+
+  private drawBrushEditHover(hover: import('../tools/BrushEditController.ts').BrushEditHover): void {
+    const shape = hover.shape;
+    const path = shape.def.path;
+    if (!path || path.length < 2) return;
+
+    const body = shape.getBody();
+    const bx = body ? body.position.x : shape.x;
+    const by = body ? body.position.y : shape.y;
+    const angle = body ? body.angle : 0;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    this.ghostGraphics.x = 0;
+    this.ghostGraphics.y = 0;
+    this.ghostGraphics.rotation = 0;
+
+    // Faint circles at every path vertex (the "connections").
+    for (let i = 0; i < path.length; i++) {
+      const wx = bx + path[i].x * cos - path[i].y * sin;
+      const wy = by + path[i].x * sin + path[i].y * cos;
+      const isHovered = hover.kind === 'vertex' && hover.index === i;
+      this.ghostGraphics.circle(wx, wy, isHovered ? 8 : 6);
+      this.ghostGraphics.fill({ color: 0xffffff, alpha: isHovered ? 0.95 : 0.35 });
+      this.ghostGraphics.stroke({ color: 0x111116, width: 1, alpha: 0.6 });
+    }
+
+    // When hovering a segment, also brighten its two endpoints so the user can
+    // tell which run will move.
+    if (hover.kind === 'segment') {
+      for (const idx of [hover.index, hover.index + 1]) {
+        const wx = bx + path[idx].x * cos - path[idx].y * sin;
+        const wy = by + path[idx].x * sin + path[idx].y * cos;
+        this.ghostGraphics.circle(wx, wy, 8);
+        this.ghostGraphics.fill({ color: 0xffe066, alpha: 0.9 });
+        this.ghostGraphics.stroke({ color: 0x111116, width: 1, alpha: 0.6 });
       }
     }
   }

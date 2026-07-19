@@ -249,6 +249,144 @@ export class PolygonUtils {
   }
 
   /**
+   * Generates a hollow pipe/tube segment along p1->p2.
+   * Returns the two wall rails (collidable bodies) and the interior channel
+   * polygon (the empty space shards travel through, used for force tests).
+   * `extend` lengthens both rails/channel beyond p1 and p2 so neighbouring
+   * segments overlap into a continuous tube.
+   */
+  public static getSegmentTube(
+    p1: Point2D,
+    p2: Point2D,
+    thickness: number,
+    wallThickness: number,
+    extend: number = 0,
+  ): { topRail: Point2D[]; bottomRail: Point2D[]; channel: Point2D[] } {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const half = thickness / 2;
+    const innerHalf = Math.max(1, half - wallThickness);
+
+    if (len < 0.001) {
+      const r = half;
+      // Degenerate: a short capsule of walls
+      const top: Point2D[] = [
+        { x: p1.x - r, y: p1.y - innerHalf },
+        { x: p1.x + r, y: p1.y - innerHalf },
+        { x: p1.x + r, y: p1.y - r },
+        { x: p1.x - r, y: p1.y - r },
+      ];
+      const bottom: Point2D[] = [
+        { x: p1.x - r, y: p1.y + r },
+        { x: p1.x + r, y: p1.y + r },
+        { x: p1.x + r, y: p1.y + innerHalf },
+        { x: p1.x - r, y: p1.y + innerHalf },
+      ];
+      const channel: Point2D[] = [
+        { x: p1.x - r, y: p1.y - innerHalf },
+        { x: p1.x + r, y: p1.y - innerHalf },
+        { x: p1.x + r, y: p1.y + innerHalf },
+        { x: p1.x - r, y: p1.y + innerHalf },
+      ];
+      return { topRail: top, bottomRail: bottom, channel };
+    }
+
+    const ux = dx / len;
+    const uy = dy / len;
+    const nx = -uy;
+    const ny = ux;
+
+    const ax = p1.x - ux * extend;
+    const ay = p1.y - uy * extend;
+    const bx = p2.x + ux * extend;
+    const by = p2.y + uy * extend;
+
+    const topRail: Point2D[] = [
+      { x: ax + nx * innerHalf, y: ay + ny * innerHalf },
+      { x: bx + nx * innerHalf, y: by + ny * innerHalf },
+      { x: bx + nx * half, y: by + ny * half },
+      { x: ax + nx * half, y: ay + ny * half },
+    ];
+
+    const bottomRail: Point2D[] = [
+      { x: ax - nx * half, y: ay - ny * half },
+      { x: bx - nx * half, y: by - ny * half },
+      { x: bx - nx * innerHalf, y: by - ny * innerHalf },
+      { x: ax - nx * innerHalf, y: ay - ny * innerHalf },
+    ];
+
+    const channel: Point2D[] = [
+      { x: ax + nx * innerHalf, y: ay + ny * innerHalf },
+      { x: bx + nx * innerHalf, y: by + ny * innerHalf },
+      { x: bx - nx * innerHalf, y: by - ny * innerHalf },
+      { x: ax - nx * innerHalf, y: ay - ny * innerHalf },
+    ];
+
+    return { topRail, bottomRail, channel };
+  }
+
+  /**
+   * Offsets a polyline to the left (or right if `offset` is negative) by the
+   * given distance, using mitered joints.
+   *
+   * When `clampMiter` is true, the miter length is capped at `|offset|` so the
+   * offset point can never extend further from the centerline than `offset`.
+   * This is used for the *inner* wall edge of a pipe so that sharp bends cannot
+   * spike the wall into the interior channel (which would obstruct flow).
+   * The outer edge leaves `clampMiter` false so corners stay smooth and sealed.
+   */
+  public static offsetPolyline(points: Point2D[], offset: number, clampMiter: boolean = false): Point2D[] {
+    const n = points.length;
+    if (n === 0) return [];
+    if (n === 1) return [{ x: points[0].x, y: points[0].y }];
+
+    const result: Point2D[] = [];
+    for (let i = 0; i < n; i++) {
+      const prev = points[Math.max(0, i - 1)];
+      const curr = points[i];
+      const next = points[Math.min(n - 1, i + 1)];
+
+      const dx1 = curr.x - prev.x;
+      const dy1 = curr.y - prev.y;
+      const l1 = Math.hypot(dx1, dy1) || 1;
+      const dx2 = next.x - curr.x;
+      const dy2 = next.y - curr.y;
+      const l2 = Math.hypot(dx2, dy2) || 1;
+
+      // Left-hand unit normals of the two adjacent segments
+      const nx1 = -dy1 / l1;
+      const ny1 = dx1 / l1;
+      const nx2 = -dy2 / l2;
+      const ny2 = dx2 / l2;
+
+      // Averaged (mitered) normal
+      let mx = nx1 + nx2;
+      let my = ny1 + ny2;
+      let mLen = Math.hypot(mx, my);
+      if (mLen < 0.001) {
+        mx = nx1;
+        my = ny1;
+        mLen = 1;
+      }
+      mx /= mLen;
+      my /= mLen;
+
+      const cosTheta = nx1 * nx2 + ny1 * ny2;
+      const cosHalf = Math.sqrt(Math.max(0.0001, (1 + cosTheta) / 2));
+      let miterLen = offset / cosHalf;
+      const maxLen = clampMiter ? Math.abs(offset) : 2 * Math.abs(offset);
+      miterLen = Math.max(-maxLen, Math.min(maxLen, miterLen));
+
+      result.push({
+        x: curr.x + mx * miterLen,
+        y: curr.y + my * miterLen,
+      });
+    }
+    return result;
+  }
+
+  /**
    * Generates an octagonal approximation of a circle.
    */
   public static getCirclePolygon(center: Point2D, radius: number): Point2D[] {
@@ -598,5 +736,79 @@ export class PolygonUtils {
       }
     }
     return points;
+  }
+
+  /**
+   * Builds one conveyor flow-segment per path segment: a rectangle the size of
+   * the segment plus the unit direction along it. Coordinates are returned in
+   * the same frame as the input path (callers convert to relative as needed).
+   */
+  public static buildConveyorSegmentsFromPath(
+    path: Point2D[],
+    thickness: number,
+  ): { poly: Point2D[]; dir: Point2D }[] {
+    const result: { poly: Point2D[]; dir: Point2D }[] = [];
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i];
+      const b = path[i + 1];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) continue;
+      const dir = { x: dx / len, y: dy / len };
+      result.push({ poly: this.getSegmentRectangle(a, b, thickness), dir });
+    }
+    return result;
+  }
+
+  /**
+   * Infers a 2-vertex editable path from existing polygons. Used to migrate
+   * legacy solid/conveyor CustomShapeDefs (which were stored without a `path`)
+   * into the new editable-path model.
+   *
+   * Strategy:
+   *  - If `dirHint` is provided (e.g. a conveyor segment direction), align the
+   *    path along that direction through the AABB center.
+   *  - Otherwise pick the longer of the AABB's two axes.
+   * The endpoints are inset by half the thickness so the generated tube
+   * (rect + end circles) matches the original geometry.
+   */
+  public static inferPathFromPolygons(
+    polys: Point2D[][],
+    thickness: number,
+    dirHint?: Point2D,
+  ): Point2D[] {
+    if (!polys || polys.length === 0) return [{ x: 0, y: 0 }, { x: thickness, y: 0 }];
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const poly of polys) {
+      for (const p of poly) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const w = maxX - minX;
+    const h = maxY - minY;
+
+    let dir: Point2D;
+    if (dirHint) {
+      const len = Math.hypot(dirHint.x, dirHint.y) || 1;
+      dir = { x: dirHint.x / len, y: dirHint.y / len };
+    } else if (w >= h) {
+      dir = { x: 1, y: 0 };
+    } else {
+      dir = { x: 0, y: 1 };
+    }
+
+    const longExtent = Math.abs(dir.x) * w / 2 + Math.abs(dir.y) * h / 2;
+    const half = thickness / 2;
+    const reach = Math.max(0, longExtent - half);
+    return [
+      { x: cx - dir.x * reach, y: cy - dir.y * reach },
+      { x: cx + dir.x * reach, y: cy + dir.y * reach },
+    ];
   }
 }

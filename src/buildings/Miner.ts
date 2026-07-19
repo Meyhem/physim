@@ -35,7 +35,7 @@ export class Miner extends Building {
     });
     main.label = `building:miner:${this.id}`;
 
-    Body.setStatic(main, false);
+    Body.setStatic(main, true);
     Body.setAngle(main, this.angle);
 
     this.bodies = [main];

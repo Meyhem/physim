@@ -67,7 +67,7 @@ export class Furnace extends Building {
       }
     });
 
-    Body.setStatic(compound, false);
+    Body.setStatic(compound, true);
     Body.setAngle(compound, this.angle);
 
     this.bodies = [compound];

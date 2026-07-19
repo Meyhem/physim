@@ -42,6 +42,7 @@ npm run build
     *   `➕ Draw New Tool`: Opens a blueprint canvas to draw custom paths.
     *   Select **Solid Wall** to draw rigid structures (e.g. buckets, scoops, funnels).
     *   Select **Conveyor Belt** to draw paths that physically accelerate objects placed on them.
+    *   Select **Pipe** to draw hollow tubes that suck shards in through the start opening and propel them along to the outlet.
 
 ### ⏱ Speed HUD (Top-Right)
 *   `⏸`: Pause physics loop (Shortcut: `Space`).

@@ -164,10 +164,27 @@ export class SaveLoadController {
 
     this.customShapeDefs.length = 0;
     const migrated = defs.map((def: any) => {
+      let result = def;
       if (!def.polygons && def.points) {
-        return this.migrateLegacyDef(def);
+        result = this.migrateLegacyDef(def);
       }
-      return def;
+      // Ensure solid/conveyor defs carry an editable `path` so the brush-edit
+      // tool can RMB-drag their segments/vertices. Legacy saves produced one
+      // CustomShape per click (no path) — infer a 2-vertex path from geometry.
+      if (
+        result &&
+        !result.path &&
+        (result.brushType === 'solid' || result.brushType === 'conveyor') &&
+        result.polygons &&
+        result.polygons.length > 0
+      ) {
+        const dirHint =
+          result.brushType === 'conveyor' && result.conveyorSegments && result.conveyorSegments.length > 0
+            ? result.conveyorSegments[0].dir
+            : undefined;
+        result.path = PolygonUtils.inferPathFromPolygons(result.polygons, result.thickness || 16, dirHint);
+      }
+      return result;
     });
     this.customShapeDefs.push(...migrated);
 

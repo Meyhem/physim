@@ -14,6 +14,8 @@ import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 import { SaveManager } from '../save/SaveManager.ts';
 import { DragController } from '../input/DragController.ts';
 import { BrushController } from '../tools/BrushController.ts';
+import { BrushEditController } from '../tools/BrushEditController.ts';
+import type { BrushEditHover } from '../tools/BrushEditController.ts';
 import type { Point2D } from '../physics/PolygonUtils.ts';
 import { PlacementController } from '../buildings/PlacementController.ts';
 import { SaveLoadController } from '../save/SaveLoadController.ts';
@@ -32,6 +34,7 @@ export class Engine {
   // Controllers
   private dragController!: DragController;
   private brushController!: BrushController;
+  private brushEditController!: BrushEditController;
   private placementController!: PlacementController;
   private saveLoadController!: SaveLoadController;
 
@@ -145,6 +148,11 @@ export class Engine {
     );
     this.dragController.setupCallbacks();
 
+    this.brushEditController = new BrushEditController(
+      this.physicsWorld,
+      this.buildingManager,
+    );
+
     this.placementController = new PlacementController(
       this.camera,
       this.inputManager,
@@ -189,6 +197,11 @@ export class Engine {
       this.brushController.cancelPath();
     }
 
+    // In brush mode the brush-edit controller owns RMB on editable shapes;
+    // the generic DragController's RMB grab is suppressed. Outside brush mode,
+    // RMB drag of whole buildings/shards works as before.
+    this.dragController.rightClickSuppressed = tool === 'brush';
+
     if (tool === 'grab') {
       this.physicsWorld.updateMousePosition(this.camera, this.inputManager);
     }
@@ -196,11 +209,11 @@ export class Engine {
 
   // --- Brush delegation ---
 
-  public get activeBrush(): 'solid' | 'conveyor' | null {
+  public get activeBrush(): 'solid' | 'conveyor' | 'pipe' | null {
     return this.brushController.activeBrush;
   }
 
-  public set activeBrush(value: 'solid' | 'conveyor' | null) {
+  public set activeBrush(value: 'solid' | 'conveyor' | 'pipe' | null) {
     this.brushController.activeBrush = value;
   }
 
@@ -216,7 +229,15 @@ export class Engine {
     return this.brushController.lastPoint;
   }
 
+  public get brushPipePath(): Point2D[] {
+    return this.brushController.getPathPoints();
+  }
+
   public brushPreviewEnd: Point2D | null = null;
+
+  public get brushEditHover(): BrushEditHover | null {
+    return this.brushEditController ? this.brushEditController.getHover() : null;
+  }
 
   // --- Placement delegation ---
 
@@ -373,11 +394,33 @@ export class Engine {
       }
     }
 
-    // RMB click: finish path
+    // RMB click: finish an in-progress path; otherwise hand off to the
+    // brush-edit controller (segment/vertex/whole-path drag).
     if (this.inputManager.isRightDown && !this.wasRightDown) {
       if (this.brushController.isDrawing) {
         this.brushController.finishPath();
+      } else {
+        this.brushEditController.onRightDown(worldPos, this.inputManager.ctrlDown);
       }
+    }
+
+    // RMB drag/up are forwarded to the brush-edit controller only when it owns
+    // the current press; the generic DragController's RMB drag is suppressed
+    // in brush mode.
+    if (this.inputManager.isRightDown && this.wasRightDown) {
+      if (this.brushEditController.isDragging()) {
+        this.brushEditController.onRightDrag(worldPos);
+      }
+    }
+    if (!this.inputManager.isRightDown && this.wasRightDown) {
+      if (this.brushEditController.isDragging()) {
+        this.brushEditController.onRightUp();
+      }
+    }
+
+    // Refresh hover when idle (not drawing, not dragging)
+    if (!this.brushController.isDrawing && !this.brushEditController.isDragging()) {
+      this.brushEditController.updateHover(worldPos);
     }
 
     this.wasLeftDown = this.inputManager.isLeftDown;

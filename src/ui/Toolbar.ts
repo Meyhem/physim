@@ -45,6 +45,9 @@ export class Toolbar {
         <button id="brush-conveyor" class="toolbar-btn" title="Draw conveyor belts directly into the world">
           <span class="icon">➡️</span> Conveyor Brush
         </button>
+        <button id="brush-pipe" class="toolbar-btn" title="Draw pipes that suck shards in at the start and propel them to the end">
+          <span class="icon">🟦</span> Pipe Brush
+        </button>
 
       </div>
 
@@ -68,6 +71,7 @@ export class Toolbar {
     // Brush components
     const brushSolidBtn = this.container.querySelector('#brush-solid') as HTMLButtonElement;
     const brushConveyorBtn = this.container.querySelector('#brush-conveyor') as HTMLButtonElement;
+    const brushPipeBtn = this.container.querySelector('#brush-pipe') as HTMLButtonElement;
 
     grabBtn.addEventListener('click', () => {
       this.setActiveTool('grab');
@@ -90,6 +94,14 @@ export class Toolbar {
       }
     });
 
+    brushPipeBtn.addEventListener('click', () => {
+      if (this.engine.activeTool === 'brush' && this.engine.activeBrush === 'pipe') {
+        this.setActiveTool('grab');
+      } else {
+        this.setActiveBrush('pipe');
+      }
+    });
+
     // Mousedown on buildings starts drag-and-hold placement
     buildCrusherBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -109,18 +121,23 @@ export class Toolbar {
       this.engine.startPlacement('building', 'miner');
     });
   }
-  private setActiveBrush(brushType: 'solid' | 'conveyor'): void {
+  private setActiveBrush(brushType: 'solid' | 'conveyor' | 'pipe'): void {
     this.engine.setTool('brush');
     this.engine.activeBrush = brushType;
 
     const grabBtn = this.container.querySelector('#tool-grab');
     const brushSolidBtn = this.container.querySelector('#brush-solid');
     const brushConveyorBtn = this.container.querySelector('#brush-conveyor');
+    const brushPipeBtn = this.container.querySelector('#brush-pipe');
     if (grabBtn) grabBtn.classList.remove('active');
     if (brushSolidBtn) brushSolidBtn.classList.remove('active');
     if (brushConveyorBtn) brushConveyorBtn.classList.remove('active');
+    if (brushPipeBtn) brushPipeBtn.classList.remove('active');
 
-    const activeBtn = brushType === 'solid' ? brushSolidBtn : brushConveyorBtn;
+    const activeBtn =
+      brushType === 'solid' ? brushSolidBtn
+      : brushType === 'conveyor' ? brushConveyorBtn
+      : brushPipeBtn;
     if (activeBtn) activeBtn.classList.add('active');
   }
 
@@ -131,9 +148,11 @@ export class Toolbar {
     const grabBtn = this.container.querySelector('#tool-grab');
     const brushSolidBtn = this.container.querySelector('#brush-solid');
     const brushConveyorBtn = this.container.querySelector('#brush-conveyor');
+    const brushPipeBtn = this.container.querySelector('#brush-pipe');
     if (grabBtn) grabBtn.classList.remove('active');
     if (brushSolidBtn) brushSolidBtn.classList.remove('active');
     if (brushConveyorBtn) brushConveyorBtn.classList.remove('active');
+    if (brushPipeBtn) brushPipeBtn.classList.remove('active');
 
     const activeBtn = this.container.querySelector('#tool-grab') as HTMLButtonElement;
     if (activeBtn) {
