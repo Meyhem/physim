@@ -13,6 +13,7 @@ export class PlacementController {
   private inputManager: InputManager;
   private buildingManager: BuildingManager;
   private customShapeDefs: CustomShapeDef[];
+  private terrainManager: TerrainManager | null = null;
 
   constructor(
     camera: Camera,
@@ -33,9 +34,9 @@ export class PlacementController {
     this.buildingManager.startPlacement(targetId);
   }
 
-  public confirmPlacement(physicsWorld: PhysicsWorld): void {
+  public confirmPlacement(physicsWorld: PhysicsWorld, terrainManager: TerrainManager): void {
     if (!this.activePlacement) return;
-    this.buildingManager.confirmPlacement(physicsWorld, this.customShapeDefs);
+    this.buildingManager.confirmPlacement(physicsWorld, this.customShapeDefs, terrainManager);
     this.activePlacement = null;
   }
 
@@ -56,6 +57,7 @@ export class PlacementController {
   public update(dt: number, terrainManager: TerrainManager, physicsWorld: PhysicsWorld): boolean {
     if (!this.activePlacement) return false;
 
+    this.terrainManager = terrainManager;
     // Rotate with Q/E
     if (this.inputManager.isKeyPressed('q')) {
       this.placementAngle -= dt * 2.5;
@@ -78,7 +80,7 @@ export class PlacementController {
 
     // Confirm placement on mouse release
     if (!this.inputManager.isLeftDown) {
-      this.confirmPlacement(physicsWorld);
+      this.confirmPlacement(physicsWorld, this.terrainManager as TerrainManager);
       return true;
     }
 

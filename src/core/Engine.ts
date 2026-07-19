@@ -229,7 +229,7 @@ export class Engine {
   }
 
   public confirmPlacement(): void {
-    this.placementController.confirmPlacement(this.physicsWorld);
+    this.placementController.confirmPlacement(this.physicsWorld, this.terrainManager);
     this.buildingRenderer.clearGhost();
   }
 

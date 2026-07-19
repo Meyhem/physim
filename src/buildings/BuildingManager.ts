@@ -2,11 +2,13 @@ import { World, Bounds } from 'matter-js';
 import { Building } from './Building.ts';
 import { Crusher } from './Crusher.ts';
 import { Furnace } from './Furnace.ts';
+import { Miner } from './Miner.ts';
 import { CustomShape } from './CustomShape.ts';
 import type { CustomShapeDef } from './CustomShape.ts';
 import { getPointsBounds, getPolygonsBounds } from './CustomShape.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { TerrainManager } from '../terrain/TerrainManager.ts';
+import { MaterialType } from '../terrain/Materials.ts';
 
 export class BuildingManager {
   private buildings: Building[] = [];
@@ -50,7 +52,7 @@ export class BuildingManager {
   /**
    * Confirms placement and creates the building.
    */
-  public confirmPlacement(physicsWorld: PhysicsWorld, customShapeDefs: CustomShapeDef[]): Building | null {
+  public confirmPlacement(physicsWorld: PhysicsWorld, customShapeDefs: CustomShapeDef[], terrainManager: TerrainManager): Building | null {
     if (!this.ghostBuilding || !this.isValidPlacement) {
       this.ghostBuilding = null;
       return null;
@@ -64,6 +66,10 @@ export class BuildingManager {
       building = new Crusher(id, x, y);
     } else if (type === 'furnace') {
       building = new Furnace(id, x, y);
+    } else if (type === 'miner') {
+      const block = terrainManager.getMaterialBelow(x, y);
+      const mat = block ? block.materialType : MaterialType.DIRT;
+      building = new Miner(id, x, y, terrainManager, mat);
     } else {
       // It's a custom shape def ID!
       const def = customShapeDefs.find(d => d.id === type);
@@ -134,6 +140,13 @@ export class BuildingManager {
         maxY: ghost.y + 100
       };
     } else if (ghost.type === 'furnace') {
+      return {
+        minX: ghost.x - 80,
+        maxX: ghost.x + 80,
+        minY: ghost.y - 80,
+        maxY: ghost.y + 80
+      };
+    } else if (ghost.type === 'miner') {
       return {
         minX: ghost.x - 80,
         maxX: ghost.x + 80,

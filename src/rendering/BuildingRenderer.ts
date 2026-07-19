@@ -4,6 +4,7 @@ import { Building } from '../buildings/Building.ts';
 import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
 import { CustomShape } from '../buildings/CustomShape.ts';
+import { Miner } from '../buildings/Miner.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 
 export class BuildingRenderer {
@@ -152,6 +153,36 @@ export class BuildingRenderer {
         graphics.circle(0, 10, 20);
         graphics.fill({ color: 0x1A120F });
       }
+    } else if (building instanceof Miner) {
+      // Main chassis (rests on terrain, top face ejects product)
+      graphics.rect(-60, -80, 120, 160);
+      graphics.fill({ color: 0x3A4A5A });
+      graphics.stroke({ color: 0x222B33, width: 3 });
+
+      // Top spout where shards are ejected
+      graphics.moveTo(-20, -80);
+      graphics.lineTo(-12, -100);
+      graphics.lineTo(12, -100);
+      graphics.lineTo(20, -80);
+      graphics.closePath();
+      graphics.fill({ color: 0x2C3845 });
+      graphics.stroke({ color: 0x222B33, width: 2 });
+
+      // Long downward shaft (drills into terrain, non-colliding)
+      graphics.rect(-8, 80, 16, 120);
+      graphics.fill({ color: 0x4A5A6A });
+      graphics.stroke({ color: 0x222B33, width: 2 });
+
+      // Spinning drill cone at the shaft tip (animated)
+      const drill = building.drillAngle;
+      const baseY = 200;
+      const wobble = Math.cos(drill) * 6;
+      graphics.moveTo(0, baseY);
+      graphics.lineTo(-18, baseY - 18 + wobble);
+      graphics.lineTo(18, baseY - 18 + wobble);
+      graphics.closePath();
+      graphics.fill({ color: 0xB0BEC5 });
+      graphics.stroke({ color: 0x607D8B, width: 1.5 });
     } else if (building instanceof CustomShape) {
       const body = building.getBody();
       if (body) {
@@ -237,7 +268,7 @@ export class BuildingRenderer {
     const isValid = buildingManager.getGhostValidity();
     const color = isValid ? 0x2ecc71 : 0xe74c3c;
 
-    if (ghost.type === 'crusher' || ghost.type === 'furnace') {
+    if (ghost.type === 'crusher' || ghost.type === 'furnace' || ghost.type === 'miner') {
       const w = ghost.type === 'crusher' ? 200 : 160;
       const h = ghost.type === 'crusher' ? 200 : 160;
 

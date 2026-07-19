@@ -30,6 +30,9 @@ export class Toolbar {
         <button id="build-furnace" class="toolbar-btn" title="Drag to place a Furnace. Q/E to rotate.">
           <span class="icon">🔥</span> Furnace
         </button>
+        <button id="build-miner" class="toolbar-btn" title="Drag to place a Miner. Mines the terrain it is mounted on. Q/E to rotate.">
+          <span class="icon">⛏️</span> Miner
+        </button>
       </div>
 
       <div class="toolbar-section separator">
@@ -60,6 +63,7 @@ export class Toolbar {
     const grabBtn = this.container.querySelector('#tool-grab') as HTMLButtonElement;
     const buildCrusherBtn = this.container.querySelector('#build-crusher') as HTMLButtonElement;
     const buildFurnaceBtn = this.container.querySelector('#build-furnace') as HTMLButtonElement;
+    const buildMinerBtn = this.container.querySelector('#build-miner') as HTMLButtonElement;
 
     // Brush components
     const brushSolidBtn = this.container.querySelector('#brush-solid') as HTMLButtonElement;
@@ -97,6 +101,12 @@ export class Toolbar {
       e.preventDefault();
       this.setActiveTool('grab');
       this.engine.startPlacement('building', 'furnace');
+    });
+
+    buildMinerBtn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      this.setActiveTool('grab');
+      this.engine.startPlacement('building', 'miner');
     });
   }
   private setActiveBrush(brushType: 'solid' | 'conveyor'): void {

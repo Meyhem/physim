@@ -6,6 +6,7 @@ import { SaveManager } from './SaveManager.ts';
 import { Materials, MaterialType } from '../terrain/Materials.ts';
 import { Crusher } from '../buildings/Crusher.ts';
 import { Furnace } from '../buildings/Furnace.ts';
+import { Miner } from '../buildings/Miner.ts';
 import { CustomShape } from '../buildings/CustomShape.ts';
 import type { CustomShapeDef } from '../buildings/CustomShape.ts';
 import { PolygonUtils } from '../physics/PolygonUtils.ts';
@@ -90,6 +91,7 @@ export class SaveLoadController {
         x: body ? body.position.x : b.x,
         y: body ? body.position.y : b.y,
         angle: body ? body.angle : b.angle,
+        materialType: (b as any).materialType ?? null,
       };
     });
   }
@@ -228,6 +230,10 @@ export class SaveLoadController {
     }
     if (b.type === 'furnace') {
       return new Furnace(b.id, b.x, b.y);
+    }
+    if (b.type === 'miner') {
+      const mat = (b.materialType as MaterialType) || MaterialType.DIRT;
+      return new Miner(b.id, b.x, b.y, this.terrainManager, mat);
     }
     const def = this.customShapeDefs.find(d => d.id === b.type);
     if (def) {
