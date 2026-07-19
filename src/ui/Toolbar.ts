@@ -18,9 +18,6 @@ export class Toolbar {
         <button id="tool-grab" class="toolbar-btn active" title="Grab and drag objects in the world">
           <span class="icon">🖐</span> Grab & Move
         </button>
-        <button id="tool-explosive" class="toolbar-btn" title="Paint explosives on terrain">
-          <span class="icon">🧨</span> Explosive Paint
-        </button>
       </div>
 
       <div class="toolbar-section separator">
@@ -48,16 +45,6 @@ export class Toolbar {
 
       </div>
 
-      <div class="toolbar-section separator">
-        <h3 class="toolbar-title">EXPLOSIVES</h3>
-        <button id="btn-detonate" class="toolbar-btn detonate-btn" title="Detonate all painted explosives (Shortcut: Enter)">
-          <span class="icon">💥</span> Detonate Blasts
-        </button>
-        <button id="btn-clear-paint" class="toolbar-btn secondary-btn" title="Clear all painted spots (Shortcut: C)">
-          <span class="icon">🧹</span> Clear Paint
-        </button>
-      </div>
-
       <div class="toolbar-section footer">
         <div class="controls-hint">
           <p><strong>Pan:</strong> WASD / Right Drag</p>
@@ -71,9 +58,6 @@ export class Toolbar {
 
     // Setup event listeners
     const grabBtn = this.container.querySelector('#tool-grab') as HTMLButtonElement;
-    const explosiveBtn = this.container.querySelector('#tool-explosive') as HTMLButtonElement;
-    const detonateBtn = this.container.querySelector('#btn-detonate') as HTMLButtonElement;
-    const clearBtn = this.container.querySelector('#btn-clear-paint') as HTMLButtonElement;
     const buildCrusherBtn = this.container.querySelector('#build-crusher') as HTMLButtonElement;
     const buildFurnaceBtn = this.container.querySelector('#build-furnace') as HTMLButtonElement;
 
@@ -83,10 +67,6 @@ export class Toolbar {
 
     grabBtn.addEventListener('click', () => {
       this.setActiveTool('grab');
-    });
-
-    explosiveBtn.addEventListener('click', () => {
-      this.setActiveTool('explosive');
     });
 
     // Brushes triggers
@@ -118,26 +98,15 @@ export class Toolbar {
       this.setActiveTool('grab');
       this.engine.startPlacement('building', 'furnace');
     });
-
-    detonateBtn.addEventListener('click', () => {
-      this.engine.detonateExplosives();
-    });
-
-    clearBtn.addEventListener('click', () => {
-      this.engine.clearPaintedExplosives();
-    });
   }
-
   private setActiveBrush(brushType: 'solid' | 'conveyor'): void {
     this.engine.setTool('brush');
     this.engine.activeBrush = brushType;
 
     const grabBtn = this.container.querySelector('#tool-grab');
-    const explosiveBtn = this.container.querySelector('#tool-explosive');
     const brushSolidBtn = this.container.querySelector('#brush-solid');
     const brushConveyorBtn = this.container.querySelector('#brush-conveyor');
     if (grabBtn) grabBtn.classList.remove('active');
-    if (explosiveBtn) explosiveBtn.classList.remove('active');
     if (brushSolidBtn) brushSolidBtn.classList.remove('active');
     if (brushConveyorBtn) brushConveyorBtn.classList.remove('active');
 
@@ -145,21 +114,18 @@ export class Toolbar {
     if (activeBtn) activeBtn.classList.add('active');
   }
 
-  private setActiveTool(tool: 'grab' | 'explosive'): void {
+  private setActiveTool(tool: 'grab'): void {
     this.engine.setTool(tool);
     this.engine.activeBrush = null;
 
     const grabBtn = this.container.querySelector('#tool-grab');
-    const explosiveBtn = this.container.querySelector('#tool-explosive');
     const brushSolidBtn = this.container.querySelector('#brush-solid');
     const brushConveyorBtn = this.container.querySelector('#brush-conveyor');
     if (grabBtn) grabBtn.classList.remove('active');
-    if (explosiveBtn) explosiveBtn.classList.remove('active');
     if (brushSolidBtn) brushSolidBtn.classList.remove('active');
     if (brushConveyorBtn) brushConveyorBtn.classList.remove('active');
 
-    const activeId = tool === 'grab' ? 'tool-grab' : 'tool-explosive';
-    const activeBtn = this.container.querySelector(`#${activeId}`) as HTMLButtonElement;
+    const activeBtn = this.container.querySelector('#tool-grab') as HTMLButtonElement;
     if (activeBtn) {
       activeBtn.classList.add('active');
     }

@@ -170,19 +170,6 @@ body, html {
   transform: none;
 }
 
-.detonate-btn {
-  background: rgba(231, 76, 60, 0.1);
-  border-color: rgba(231, 76, 60, 0.3);
-  color: #ff6b6b;
-}
-
-.detonate-btn:hover {
-  background: var(--danger-color);
-  border-color: var(--danger-hover);
-  color: white;
-  box-shadow: 0 0 15px rgba(231, 76, 60, 0.4);
-}
-
 .secondary-btn {
   background: transparent;
   border-color: rgba(255, 255, 255, 0.05);

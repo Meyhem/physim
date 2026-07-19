@@ -6,7 +6,6 @@ import { ShardRenderer } from '../rendering/ShardRenderer.ts';
 import { ParticleSystem } from '../rendering/ParticleSystem.ts';
 import { InputManager } from '../input/InputManager.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
-import { ExplosiveTool } from '../tools/ExplosiveTool.ts';
 import { WORLD_WIDTH } from './Constants.ts';
 import { Materials } from '../terrain/Materials.ts';
 import { BuildingManager } from '../buildings/BuildingManager.ts';
@@ -48,8 +47,7 @@ export class Engine {
   public saveManager!: SaveManager;
 
   // Tools
-  private explosiveTool!: ExplosiveTool;
-  public activeTool: 'grab' | 'explosive' | 'brush' = 'grab';
+  public activeTool: 'grab' | 'brush' = 'grab';
 
   private lastTime: number = 0;
   private isRunning: boolean = false;
@@ -114,7 +112,6 @@ export class Engine {
   }
 
   private initTools(): void {
-    this.explosiveTool = new ExplosiveTool(this.renderer.toolsContainer);
   }
 
   private initSaveSystem(): void {
@@ -185,10 +182,9 @@ export class Engine {
     this.isRunning = false;
   }
 
-  public setTool(tool: 'grab' | 'explosive' | 'brush'): void {
+  public setTool(tool: 'grab' | 'brush'): void {
     this.activeTool = tool;
 
-    this.explosiveTool.clearPaint();
     if (tool !== 'brush') {
       this.brushController.cancelPath();
     }
@@ -196,19 +192,6 @@ export class Engine {
     if (tool === 'grab') {
       this.physicsWorld.updateMousePosition(this.camera, this.inputManager);
     }
-  }
-
-  public detonateExplosives(): void {
-    this.explosiveTool.detonate(
-      this.terrainManager,
-      this.physicsWorld,
-      this.particleSystem,
-      this.camera,
-    );
-  }
-
-  public clearPaintedExplosives(): void {
-    this.explosiveTool.clearPaint();
   }
 
   // --- Brush delegation ---
@@ -308,7 +291,6 @@ export class Engine {
 
   private update(dt: number): void {
     this.updateCameraPan(dt);
-    this.updateKeyboardShortcuts();
     this.updateDraggingRotation(dt);
 
     this.camera.update(dt);
@@ -336,21 +318,6 @@ export class Engine {
     }
   }
 
-  private updateKeyboardShortcuts(): void {
-    const isRotatingToolActive =
-      this.placementController.isActive() ||
-      this.dragController.isDraggingBuilding() ||
-      this.activeTool === 'brush';
-
-    if (this.inputManager.isKeyPressed('enter') ||
-        (!isRotatingToolActive && this.inputManager.isKeyPressed('e'))) {
-      this.detonateExplosives();
-    }
-    if (this.inputManager.isKeyPressed('c')) {
-      this.clearPaintedExplosives();
-    }
-  }
-
   private updateDraggingRotation(dt: number): void {
     if (!this.dragController.isDraggingBuilding()) return;
 
@@ -374,22 +341,10 @@ export class Engine {
       if (confirmed) {
         this.buildingRenderer.clearGhost();
       }
-    } else if (this.activeTool === 'explosive') {
-      this.updateExplosiveTool();
     } else if (this.activeTool === 'brush' && this.activeBrush) {
       this.updateBrushTool(dt);
     } else if (this.activeTool === 'grab') {
       this.physicsWorld.updateMousePosition(this.camera, this.inputManager);
-    }
-  }
-
-  private updateExplosiveTool(): void {
-    if (this.inputManager.isLeftDown) {
-      const worldPos = this.camera.screenToWorld(
-        this.inputManager.mouseX,
-        this.inputManager.mouseY,
-      );
-      this.explosiveTool.paint(worldPos.x, worldPos.y);
     }
   }
 

@@ -35,10 +35,7 @@ npm run build
 
 ### 🖐 Toolbar Tools
 1.  **Grab & Move**: Click and drag any dynamic shards, ingots, or custom shapes with your mouse.
-2.  **Explosive Paint**: Paint explosive charges onto the terrain.
-    *   `Enter`: Detonate all painted explosives simultaneously (produces screen shake and particles).
-    *   `C`: Clear all painted spots without detonating.
-3.  **Buildings**:
+2.  **Buildings**:
     *   **Crusher**: Funnels dynamic ores into vibrating jaws to break them into smaller crushed shards.
     *   **Furnace**: Smelts crushed shards into refined products (Ingots / Bricks) and physically ejects them.
 4.  **Custom Shape Tool**:

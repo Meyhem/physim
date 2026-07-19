@@ -89,12 +89,8 @@ export class BrushController {
     // Generate conveyor segments if applicable
     const conveyorSegments = this.generateConveyorSegmentsForRect(p1, p2, segRect);
 
-    // Merge with overlapping same-type buildings
-    const { finalWorldPolys, finalWorldConveyorSegments } =
-      this.mergeWithExisting(clippedPolys, conveyorSegments);
-
-    // Create the custom shape
-    this.createCustomShape(finalWorldPolys, finalWorldConveyorSegments);
+    // Create the custom shape (each segment overlays existing ones; no merge)
+    this.createCustomShape(clippedPolys, conveyorSegments);
 
     // Advance lastPoint
     this.lastPoint = { x: worldPos.x, y: worldPos.y };
@@ -144,92 +140,6 @@ export class BrushController {
     clippedSegs = clippedSegs.filter(poly => PolygonUtils.getArea(poly) > 5);
 
     return clippedSegs.map(poly => ({ poly, dir }));
-  }
-
-  private mergeWithExisting(
-    clippedPolys: Point2D[][],
-    conveyorSegments: { poly: Point2D[]; dir: Point2D }[],
-  ): {
-    finalWorldPolys: Point2D[][];
-    finalWorldConveyorSegments: { poly: Point2D[]; dir: Point2D }[];
-  } {
-    let finalWorldPolys = [...clippedPolys];
-    let finalWorldConveyorSegments = [...conveyorSegments];
-    const brushType = this.activeBrush!;
-    const buildingsToMerge: CustomShape[] = [];
-
-    for (const b of this.buildingManager.getBuildings()) {
-      if (!(b instanceof CustomShape) || b.def.brushType !== brushType) continue;
-
-      const body = b.getBody();
-      if (!body) continue;
-
-      const existingWorldPolys = this.transformPolysToWorld(b.def.polygons, body);
-      if (!this.polysIntersect(finalWorldPolys, existingWorldPolys)) continue;
-
-      buildingsToMerge.push(b);
-      finalWorldPolys.push(...existingWorldPolys);
-
-      if (brushType === 'conveyor' && b.def.conveyorSegments) {
-        const existingWorldSegments = this.transformConveyorSegmentsToWorld(
-          b.def.conveyorSegments,
-          body,
-        );
-        finalWorldConveyorSegments.push(...existingWorldSegments);
-      }
-    }
-
-    finalWorldPolys = PolygonUtils.unionList(finalWorldPolys);
-
-    for (const oldBuilding of buildingsToMerge) {
-      this.buildingManager.removeBuilding(oldBuilding.id, this.physicsWorld.world);
-    }
-
-    return { finalWorldPolys, finalWorldConveyorSegments };
-  }
-
-  private transformPolysToWorld(
-    polys: Point2D[][],
-    body: Matter.Body,
-  ): Point2D[][] {
-    const eCos = Math.cos(body.angle);
-    const eSin = Math.sin(body.angle);
-    return polys.map(poly =>
-      poly.map((p: Point2D) => ({
-        x: body.position.x + p.x * eCos - p.y * eSin,
-        y: body.position.y + p.x * eSin + p.y * eCos,
-      })),
-    );
-  }
-
-  private transformConveyorSegmentsToWorld(
-    segments: { poly: Point2D[]; dir: Point2D }[],
-    body: Matter.Body,
-  ): { poly: Point2D[]; dir: Point2D }[] {
-    const eCos = Math.cos(body.angle);
-    const eSin = Math.sin(body.angle);
-    return segments.map(seg => ({
-      poly: seg.poly.map((p: Point2D) => ({
-        x: body.position.x + p.x * eCos - p.y * eSin,
-        y: body.position.y + p.x * eSin + p.y * eCos,
-      })),
-      dir: {
-        x: seg.dir.x * eCos - seg.dir.y * eSin,
-        y: seg.dir.x * eSin + seg.dir.y * eCos,
-      },
-    }));
-  }
-
-  private polysIntersect(polysA: Point2D[][], polysB: Point2D[][]): boolean {
-    for (const pA of polysA) {
-      for (const pB of polysB) {
-        const overlap = PolygonUtils.intersection(pA, pB);
-        if (overlap.length > 0 && overlap.some(o => PolygonUtils.getArea(o) > 5)) {
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   private createCustomShape(
