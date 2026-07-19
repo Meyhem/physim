@@ -347,26 +347,17 @@ export class BuildingRenderer {
     this.ghostGraphics.y = 0;
     this.ghostGraphics.rotation = 0;
 
-    // Faint circles at every path vertex (the "connections").
-    for (let i = 0; i < path.length; i++) {
-      const wx = bx + path[i].x * cos - path[i].y * sin;
-      const wy = by + path[i].x * sin + path[i].y * cos;
-      const isHovered = hover.kind === 'vertex' && hover.index === i;
-      this.ghostGraphics.circle(wx, wy, isHovered ? 8 : 6);
-      this.ghostGraphics.fill({ color: 0xffffff, alpha: isHovered ? 0.95 : 0.35 });
+    // Only draw a highlight on the hovered element itself — the faint per-vertex
+    // dots were noise. Hovering a vertex highlights that vertex; hovering a
+    // segment highlights its two endpoints (the ones that will move together).
+    const indices =
+      hover.kind === 'vertex' ? [hover.index] : [hover.index, hover.index + 1];
+    for (const idx of indices) {
+      const wx = bx + path[idx].x * cos - path[idx].y * sin;
+      const wy = by + path[idx].x * sin + path[idx].y * cos;
+      this.ghostGraphics.circle(wx, wy, 8);
+      this.ghostGraphics.fill({ color: 0xffe066, alpha: 0.9 });
       this.ghostGraphics.stroke({ color: 0x111116, width: 1, alpha: 0.6 });
-    }
-
-    // When hovering a segment, also brighten its two endpoints so the user can
-    // tell which run will move.
-    if (hover.kind === 'segment') {
-      for (const idx of [hover.index, hover.index + 1]) {
-        const wx = bx + path[idx].x * cos - path[idx].y * sin;
-        const wy = by + path[idx].x * sin + path[idx].y * cos;
-        this.ghostGraphics.circle(wx, wy, 8);
-        this.ghostGraphics.fill({ color: 0xffe066, alpha: 0.9 });
-        this.ghostGraphics.stroke({ color: 0x111116, width: 1, alpha: 0.6 });
-      }
     }
   }
 

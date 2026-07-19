@@ -138,27 +138,20 @@ export class BrushEditController {
   // --- internals ---
 
   private pickHover(worldPos: Point2D): BrushEditHover | null {
-    const hits = this.physicsWorld.queryPoint(worldPos.x, worldPos.y, 'custom:');
-    if (hits.length === 0) return null;
-
-    // Find the CustomShape that owns any of the hit bodies and is editable
-    // (has a `path`). Pipe shapes are not editable in this model.
+    // Iterate topmost-first so overlapping shapes pick the visually-last drawn.
+    // We can't rely on matter's Query.point for pipes: a pipe's body is only
+    // the two thin walls, so hovering the hollow interior hits nothing. Test
+    // the shape's full grabbable footprint (walls + interior channel) with a
+    // point-in-polygon check instead.
     const buildings = this.buildingManager.getBuildings();
-    let target: CustomShape | null = null;
-    for (const hit of hits) {
-      const shape = buildings.find(b => {
-        if (!(b instanceof CustomShape)) return false;
-        const bodies = b.getBodies();
-        return bodies.some(bod => bod === hit || bod.parts.includes(hit));
-      }) as CustomShape | undefined;
-      if (shape && shape.def.path) {
-        target = shape;
-        break;
-      }
+    for (let i = buildings.length - 1; i >= 0; i--) {
+      const b = buildings[i];
+      if (!(b instanceof CustomShape)) continue;
+      if (!b.def.path || b.def.path.length < 2) continue;
+      const hover = this.hoverForShape(b, worldPos);
+      if (hover) return hover;
     }
-    if (!target) return null;
-
-    return this.hoverForShape(target, worldPos);
+    return null;
   }
 
   private hoverForShape(shape: CustomShape, worldPos: Point2D): BrushEditHover | null {
@@ -169,20 +162,33 @@ export class BrushEditController {
     const bx = body ? body.position.x : shape.x;
     const by = body ? body.position.y : shape.y;
     const angle = body ? body.angle : 0;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
 
-    const toWorld = (p: Point2D): Point2D => ({
-      x: bx + p.x * cos - p.y * sin,
-      y: by + p.x * sin + p.y * cos,
-    });
+    // Transform the cursor into the shape's local (path) frame.
+    const dx = worldPos.x - bx;
+    const dy = worldPos.y - by;
+    const cos = Math.cos(-angle);
+    const sin = Math.sin(-angle);
+    const local: Point2D = { x: dx * cos - dy * sin, y: dx * sin + dy * cos };
 
-    // 1. Check vertex hits first (vertices win over segments when both qualify).
+    // The cursor must be somewhere on the shape's footprint before we consider
+    // grabbing a segment/vertex. For pipes this includes the hollow channel
+    // (so the user can grab by the middle, not just the walls).
+    if (!this.isInsideFootprint(shape, local)) return null;
+
+    const thickness = shape.def.thickness;
+
+    // Vertex hit radius: for pipes, the joint sits in the middle of a hollow
+    // cap — use the full half-thickness so any click near the joint inside
+    // the pipe grabs it. For solid/conveyor keep a small precise radius.
+    const vertexRadius = shape.def.brushType === 'pipe'
+      ? Math.max(VERTEX_HIT_RADIUS, thickness / 2)
+      : VERTEX_HIT_RADIUS;
+
+    // 1. Vertices win over segments when both qualify.
     let bestVertex = -1;
-    let bestVertexDist = VERTEX_HIT_RADIUS;
+    let bestVertexDist = vertexRadius;
     for (let i = 0; i < path.length; i++) {
-      const w = toWorld(path[i]);
-      const d = Math.hypot(w.x - worldPos.x, w.y - worldPos.y);
+      const d = Math.hypot(path[i].x - local.x, path[i].y - local.y);
       if (d < bestVertexDist) {
         bestVertexDist = d;
         bestVertex = i;
@@ -192,14 +198,11 @@ export class BrushEditController {
       return { shape, kind: 'vertex', index: bestVertex };
     }
 
-    // 2. Otherwise check segment hits.
-    const thickness = shape.def.thickness;
+    // 2. Otherwise find the closest segment (within the brush radius).
     let bestSeg = -1;
     let bestSegDist = thickness / 2 + SEGMENT_HIT_PADDING;
     for (let i = 0; i < path.length - 1; i++) {
-      const a = toWorld(path[i]);
-      const b = toWorld(path[i + 1]);
-      const d = PolygonUtils.distToSegment(worldPos, a, b);
+      const d = PolygonUtils.distToSegment(local, path[i], path[i + 1]);
       if (d < bestSegDist) {
         bestSegDist = d;
         bestSeg = i;
@@ -210,5 +213,22 @@ export class BrushEditController {
     }
 
     return null;
+  }
+
+  /**
+   * Returns true if `local` (a point in the shape's local frame, relative to
+   * the body's position) lies anywhere on the shape's grabbable footprint:
+   * filled polygons for solid/conveyor, or walls + interior channel for pipe.
+   */
+  private isInsideFootprint(shape: CustomShape, local: Point2D): boolean {
+    for (const poly of shape.def.polygons) {
+      if (poly.length >= 3 && PolygonUtils.isPointInPolygon(local, poly)) return true;
+    }
+    if (shape.def.brushType === 'pipe' && shape.def.flowSegments) {
+      for (const seg of shape.def.flowSegments) {
+        if (seg.poly.length >= 3 && PolygonUtils.isPointInPolygon(local, seg.poly)) return true;
+      }
+    }
+    return false;
   }
 }
