@@ -71,11 +71,12 @@ export class Miner extends Building {
 
     // Determine the material from whatever terrain the shaft touches
     const tip = this.getShaftTip();
-    const block = this.terrainManager.getMaterialAtPoint(tip.x, tip.y)
-      || this.terrainManager.getMaterialBelow(this.x, this.y);
-    if (block) {
-      this.materialType = block.materialType;
+    const block = this.terrainManager.getMaterialAtPoint(tip.x, tip.y);
+    if (!block) {
+      // Drill is not submerged in terrain; do not produce.
+      return;
     }
+    this.materialType = block.materialType;
 
     this.timer -= dt;
     if (this.timer > 0) return;
